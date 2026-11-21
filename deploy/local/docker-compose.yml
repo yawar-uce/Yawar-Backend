@@ -1,0 +1,107 @@
+# Yawar local environment: shared infrastructure for development.
+# Use the Makefile at the repository root (`make up`, `make ps`, `make down`, `make reset`).
+# Optional profiles are added by later tasks: `ad` (Samba AD) and `gateway` (API Gateway).
+
+name: ${COMPOSE_PROJECT_NAME:-yawar}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: postgres
+      DONORS_DB_NAME: ${DONORS_DB_NAME}
+      DONORS_DB_USER: ${DONORS_DB_USER}
+      DONORS_DB_PASSWORD: ${DONORS_DB_PASSWORD}
+      KEYCLOAK_DB_NAME: ${KEYCLOAK_DB_NAME}
+      KEYCLOAK_DB_USER: ${KEYCLOAK_DB_USER}
+      KEYCLOAK_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      # TCP (not the socket) so the temporary init server never counts; and both databases must exist.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U \"$$POSTGRES_USER\" && for d in \"$$DONORS_DB_NAME\" \"$$KEYCLOAK_DB_NAME\"; do PGPASSWORD=\"$$POSTGRES_PASSWORD\" psql -h 127.0.0.1 -U \"$$POSTGRES_USER\" -d \"$$d\" -tAc 'select 1' >/dev/null || exit 1; done"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    restart: unless-stopped
+    hostname: rabbitmq
+    entrypoint: ["/bin/sh", "/opt/yawar/rabbitmq-entrypoint.sh"]
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+      YAWAR_VHOSTS: ${RABBITMQ_VHOSTS}
+    ports:
+      - "127.0.0.1:${RABBITMQ_AMQP_PORT:-5672}:5672"
+      - "127.0.0.1:${RABBITMQ_UI_PORT:-15672}:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+      - ./rabbitmq/rabbitmq-entrypoint.sh:/opt/yawar/rabbitmq-entrypoint.sh:ro
+    healthcheck:
+      # Healthy only once the broker answers AND the default user has access to every Yawar vhost.
+      test: ["CMD-SHELL", "rabbitmq-diagnostics -q check_port_connectivity && for v in $$YAWAR_VHOSTS; do rabbitmqctl -q list_permissions -p \"$$v\" 2>/dev/null | grep -q \"^$$RABBITMQ_DEFAULT_USER\" || exit 1; done"]
+      interval: 10s
+      timeout: 15s
+      retries: 20
+      start_period: 20s
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.8.2
+    restart: unless-stopped
+    command: ["start-dev"]
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/${KEYCLOAK_DB_NAME}
+      KC_DB_USERNAME: ${KEYCLOAK_DB_USER}
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USER}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      KC_HEALTH_ENABLED: "true"
+      KC_METRICS_ENABLED: "true"
+      KC_HTTP_PORT: "8080"
+      KC_HOSTNAME_STRICT: "false"
+    ports:
+      - "127.0.0.1:${KEYCLOAK_PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      # The image has no curl: query the management interface (port 9000) with bash /dev/tcp.
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q '\"UP\"' <&3"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  mailpit:
+    image: axllent/mailpit:v1.34.0
+    restart: unless-stopped
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: "true"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "true"
+      MP_DATABASE: /data/mailpit.db
+    ports:
+      - "127.0.0.1:${MAILPIT_SMTP_PORT:-1025}:1025"
+      - "127.0.0.1:${MAILPIT_UI_PORT:-8025}:8025"
+    volumes:
+      - mailpit-data:/data
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+volumes:
+  postgres-data:
+  rabbitmq-data:
+  mailpit-data:

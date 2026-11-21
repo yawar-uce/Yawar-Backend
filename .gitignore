@@ -23,3 +23,6 @@ kubeconfig
 *.kubeconfig
 secrets.auto.tfvars
 *.secret.*
+
+# Local environment (real values, generated secrets)
+deploy/local/.secrets/
