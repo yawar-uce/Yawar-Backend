@@ -1,0 +1,43 @@
+name: ci
+
+on:
+  pull_request:
+    branches: [dev, qa, production]
+  push:
+    branches: [dev, qa, production]
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Build and test every service (coverage ≥ 70 %, V-01)
+        run: |
+          shopt -s nullglob
+          poms=(services/*/pom.xml libs/*/pom.xml)
+          if [ ${#poms[@]} -eq 0 ]; then
+            echo "No services yet — nothing to build"; exit 0
+          fi
+          for pom in "${poms[@]}"; do
+            echo "::group::$(dirname "$pom")"
+            mvn -B -f "$pom" verify
+            echo "::endgroup::"
+          done
+
+      - name: Trivy filesystem scan (V-03)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          ignore-unfixed: true
