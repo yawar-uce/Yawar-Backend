@@ -74,6 +74,39 @@ The PostgreSQL init script only runs on an empty volume: after changing database
 Later tasks add compose profiles, started with `make up PROFILE=<name>`: `ad` (Samba AD) and
 `gateway` (API Gateway).
 
+## Local Kubernetes (kind)
+
+A single-node [kind](https://kind.sigs.k8s.io/) cluster to try the Helm chart and Kubernetes manifests
+before AWS. Defined in [deploy/kind/](deploy/kind/).
+
+**Requirements:** Docker, kind, kubectl.
+
+```bash
+make kind-up      # cluster "yawar" + local registry localhost:5001 + namespaces (safe to re-run)
+make kind-smoke   # nodes Ready, namespaces present, push an image to localhost:5001 and run it
+make kind-down    # delete the cluster and the registry container (pushed images are kept)
+make kind-down KEEP_REGISTRY=1   # keep the registry container running
+make kind-down PURGE_REGISTRY=1  # also delete the pushed images (volume yawar-registry-data)
+```
+`make kind-up` also recovers after a Docker Desktop or WSL restart: it starts the stopped registry and
+node containers again.
+
+| Item | Value |
+|---|---|
+| Cluster / kubectl context | `yawar` / `kind-yawar` (`make kind-up` always sets it as the current context) |
+| Node | 1 control-plane, label `ingress-ready=true`, host ports `127.0.0.1:80` and `127.0.0.1:443` for an ingress controller |
+| Registry | container `yawar-registry` (`registry:3.1.2`), `localhost:5001` from the host; the cluster pulls `localhost:5001/<image>` from it |
+| Namespaces | `yawar-dev`, `yawar-qa`, labels `app.kubernetes.io/part-of=yawar`, `yawar.io/env=<env>`; Pod Security `enforce=baseline`, `warn/audit=restricted` |
+
+Use the registry like this:
+```bash
+docker tag my-image:dev localhost:5001/yawar/my-image:dev
+docker push localhost:5001/yawar/my-image:dev
+kubectl --context kind-yawar -n yawar-dev run demo --image=localhost:5001/yawar/my-image:dev
+```
+If ports 80 or 443 are already taken on the host, `make kind-up` fails while it creates the cluster.
+Free the port, or change `hostPort` in `deploy/kind/cluster.yaml` locally.
+
 ## Workflow
 See [docs/BRANCHING.md](docs/BRANCHING.md): `feature/YAW-xx` → `dev` → `qa` → `production`.
 Promotion to `production` requires the professor's approval (`professor-approval` check).
