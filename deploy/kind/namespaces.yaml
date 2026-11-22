@@ -1,0 +1,23 @@
+# Yawar application namespaces in the local kind cluster.
+# Pod Security: enforce "baseline", warn/audit "restricted" (the shared Helm chart targets restricted).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: yawar-dev
+  labels:
+    app.kubernetes.io/part-of: yawar
+    yawar.io/env: dev
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: yawar-qa
+  labels:
+    app.kubernetes.io/part-of: yawar
+    yawar.io/env: qa
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted
