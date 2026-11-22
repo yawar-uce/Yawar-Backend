@@ -1,0 +1,27 @@
+# Local Kubernetes cluster for Yawar (kind). Created by `make kind-up`.
+# One control-plane node, ingress-ready (host ports 80/443 on 127.0.0.1), wired to the local
+# registry localhost:5001 (see https://kind.sigs.k8s.io/docs/user/local-registry/).
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: yawar
+containerdConfigPatches:
+  - |-
+    [plugins."io.containerd.grpc.v1.cri".registry]
+      config_path = "/etc/containerd/certs.d"
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+    extraPortMappings:
+      - containerPort: 80
+        hostPort: 80
+        listenAddress: "127.0.0.1"
+        protocol: TCP
+      - containerPort: 443
+        hostPort: 443
+        listenAddress: "127.0.0.1"
+        protocol: TCP

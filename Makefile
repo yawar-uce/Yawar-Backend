@@ -61,3 +61,6 @@ psql: $(ENV_FILE) ## Open psql as the admin user (DB=<database>, SQL='<command>'
 	else \
 	  $(COMPOSE) exec -e PSQL_DB postgres sh -c 'psql -U "$$POSTGRES_USER" -d "$$PSQL_DB"'; \
 	fi
+
+# Each area keeps its targets in its own file to avoid conflicts between tasks.
+include deploy/kind/kind.mk
