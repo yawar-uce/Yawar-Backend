@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Root aggregator of the Yawar backend. It only lists the modules: each one is a top-level folder with its own
+  pom.xml, Maven wrapper and Dockerfile (cd ms-donors && ./mvnw verify works once its dependencies are in ~/.m2).
+  From the root: ./mvnw verify (everything, what CI runs) or ./mvnw -pl ms-donors -am verify (one service and the
+  modules it depends on, e.g. yawar-platform).
+  Order: yawar-platform first, then platform services, then the microservices (names exactly as in Jira).
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>ec.yawar</groupId>
+    <artifactId>yawar-backend</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <packaging>pom</packaging>
+    <name>yawar-backend</name>
+    <description>Aggregator of the Yawar backend modules (one top-level folder per microservice).</description>
+
+    <modules>
+        <!-- Added by the tasks that create them:
+        <module>yawar-platform</module>      YAW-12
+        <module>config-server</module>       YAW-216
+        <module>discovery-service</module>   YAW-217
+        <module>api-gateway</module>         YAW-33
+        <module>ms-donors</module>           YAW-36
+        -->
+    </modules>
+</project>

@@ -2,3 +2,5 @@
 *.sh     text eol=lf
 Makefile text eol=lf
 *.mk     text eol=lf
+mvnw     text eol=lf
+*.cmd    text eol=crlf
