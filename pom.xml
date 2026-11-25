@@ -18,9 +18,9 @@
     <description>Aggregator of the Yawar backend modules (one top-level folder per microservice).</description>
 
     <modules>
+        <module>yawar-platform</module>
         <module>config-server</module>
         <!-- Added by the tasks that create them:
-        <module>yawar-platform</module>      YAW-12
         <module>discovery-service</module>   YAW-217
         <module>api-gateway</module>         YAW-33
         <module>ms-donors</module>           YAW-36

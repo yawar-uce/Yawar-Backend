@@ -49,7 +49,8 @@ make coverage S=ms-donors    # all tests + gate; prints line coverage and the Ja
 ```
 
 A new module: create the folder (name exactly as in Jira) and add it to `<modules>` in the root `pom.xml`.
-Its pom must define `<skipUTs>false</skipUTs>`, configure surefire with `<skipTests>${skipUTs}</skipTests>`
+Its pom must define `<skipTests>false</skipTests>` and `<skipUTs>${skipTests}</skipUTs>`, configure surefire with
+`<skipTests>${skipUTs}</skipTests>` (so `-DskipTests` still skips everything)
 (unit tests `*Test`), failsafe for `*IT`, and JaCoCo `prepare-agent` + `report` + `check` (LINE covered
 ratio ≥ 0.70) at `verify`.
 
