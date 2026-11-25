@@ -36,7 +36,7 @@ $(ENV_FILE): $(LOCAL_DIR)/.env.example
 
 .PHONY: up
 up: $(ENV_FILE) ## Start the local stack and wait until healthy (PROFILE=ad for Samba AD)
-	$(COMPOSE) $(PROFILE_FLAGS) up -d --wait --wait-timeout 300
+	$(COMPOSE) $(PROFILE_FLAGS) up -d --build --wait --wait-timeout 300
 
 .PHONY: down
 down: $(ENV_FILE) ## Stop the local stack (keeps data volumes)

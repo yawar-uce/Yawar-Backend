@@ -1,0 +1,11 @@
+CONFIG_SERVER_USER: it-config
+CONFIG_SERVER_PASSWORD: it-secret
+CONFIG_ADMIN_USER: it-admin
+CONFIG_ADMIN_PASSWORD: it-admin-secret
+RABBITMQ_VHOST: /
+spring:
+  cloud:
+    config:
+      server:
+        native:
+          search-locations: classpath:/config-repo/
