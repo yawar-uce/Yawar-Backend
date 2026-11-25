@@ -11,6 +11,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions per m
 - Grafana otel-lgtm container in the local compose (Grafana on 3000, OTLP 4317/4318, bound to 127.0.0.1) for traces, logs and metrics (YAW-11).
 - Local Kubernetes with kind: cluster `yawar` (ingress-ready 80/443), local registry `localhost:5001`, namespaces `yawar-dev` and `yawar-qa`, targets kind-up/kind-down/kind-smoke (YAW-14).
 - Keycloak realms as code `yawar-dev` and `yawar-qa` (keycloak-config-cli): self-registration with required privacy consent, email verification through Mailpit, roles donor/recruitment/logistics/hospital/administrator/auditor/agent (new users get donor only), public client `yawar-web` with Authorization Code + PKCE S256, Google identity provider from environment variables; targets keycloak-import and keycloak-check (YAW-31).
+- `config-server` 0.1.0-SNAPSHOT: Spring Cloud Config Server (git backend `yawar-uce/yawar-config`, native backend for local dev), HTTP Basic, Spring Cloud Bus refresh over RabbitMQ (`POST /busrefresh`), probes `/health/live` and `/health/ready`, Dockerfile, compose profile `platform`, Helm values (YAW-216).
 
 ### Changed
 - Local RabbitMQ upgraded from 3.13 to 4.2 (`rabbitmq:4.2.9-management-alpine`); run `make reset` once to drop the old 3.13 data volume (YAW-11).
