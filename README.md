@@ -62,7 +62,7 @@ Shared infrastructure for development, defined in [deploy/local/docker-compose.y
 
 ### Start
 ```bash
-make up        # first run copies deploy/local/.env.example to deploy/local/.env
+make up        # first run copies deploy/local/.env.example to deploy/local/.env (images of modules are rebuilt)
 make ps        # every service must show "(healthy)"
 ```
 `make up` waits until every container is healthy (timeout 5 min; the first run pulls the images).
@@ -75,6 +75,7 @@ Local credentials live in `deploy/local/.env` (git-ignored). Edit that file, nev
 | Keycloak | http://localhost:8080 (admin console at `/admin`), realm `yawar-dev` applied from [deploy/keycloak](deploy/keycloak/README.md) | `KEYCLOAK_ADMIN_USER` / `KEYCLOAK_ADMIN_PASSWORD` |
 | RabbitMQ 4.2 | AMQP `localhost:5672`, UI http://localhost:15672 — vhosts `yawar-dev`, `yawar-qa` | `RABBITMQ_USER` / `RABBITMQ_PASSWORD` |
 | Mailpit | SMTP `localhost:1025`, UI http://localhost:8025 | none (accepts any SMTP auth) |
+| ms-donors (`PROFILE=platform`) | http://localhost:8081 · `/health/ready` · `/v3/api-docs` · `/swagger-ui/index.html` | Keycloak token (realm `yawar-dev`, role `donor`) |
 | Grafana otel-lgtm | Grafana http://localhost:3000 (traces in Tempo, logs in Loki, metrics in Prometheus); OTLP gRPC `localhost:4317`, HTTP `localhost:4318` | none (anonymous admin, bound to 127.0.0.1) |
 
 ### Everyday commands
@@ -105,8 +106,9 @@ The PostgreSQL init script only runs on an empty volume: after changing database
   cannot start from. Run `make reset` once (it deletes the local data), then `make up`.
 
 ### Optional profiles
-Later tasks add compose profiles, started with `make up PROFILE=<name>`: `ad` (Samba AD) and
-`gateway` (API Gateway).
+Compose profiles, started with `make up PROFILE=<name>`: `platform` (Yawar services built from their module
+folders: ms-donors, and config-server / discovery-service from YAW-216 / YAW-217), `ad` (Samba AD) and `gateway`
+(API Gateway).
 
 ## Local Kubernetes (kind)
 
