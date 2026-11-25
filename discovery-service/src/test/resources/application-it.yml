@@ -1,0 +1,6 @@
+EUREKA_USER: it-eureka
+EUREKA_PASSWORD: it-secret
+spring:
+  cloud:
+    config:
+      enabled: false
