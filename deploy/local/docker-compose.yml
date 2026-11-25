@@ -160,7 +160,7 @@ services:
     restart: unless-stopped
     environment:
       YAWAR_ENV: dev
-      CONFIG_IMPORT: optional:configserver:http://config-server:8888/config
+      CONFIG_SERVER_URL: http://config-server:8888/config   # optional import until config-server is in compose
       CONFIG_SERVER_USER: ${CONFIG_SERVER_USER:-}
       CONFIG_SERVER_PASSWORD: ${CONFIG_SERVER_PASSWORD:-}
       DONORS_DB_URL: jdbc:postgresql://postgres:5432/${DONORS_DB_NAME}
@@ -173,7 +173,9 @@ services:
       # The token's iss is what the browser sees (localhost); the keys come from the container network.
       KEYCLOAK_ISSUER_URI: http://localhost:${KEYCLOAK_PORT:-8080}/realms/yawar-dev
       KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/yawar-dev/protocol/openid-connect/certs
-      EUREKA_URL: http://${EUREKA_USER:-eureka}:${EUREKA_PASSWORD:-}@discovery-service:8761/eureka/
+      # Off until discovery-service is in the platform profile (YAW-217); then EUREKA_HOST=discovery-service.
+      EUREKA_ENABLED: "false"
+      EUREKA_HOST: discovery-service
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-lgtm:4318
     ports:
       - "127.0.0.1:${DONORS_PORT:-8081}:8081"

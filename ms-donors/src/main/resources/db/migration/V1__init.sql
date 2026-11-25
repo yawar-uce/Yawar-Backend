@@ -5,6 +5,7 @@ CREATE TABLE donor (
     id                 UUID PRIMARY KEY,
     user_id            UUID        NOT NULL,           -- Keycloak subject (sub): the only link to the identity
     blood_type         BYTEA,                          -- health data: AES-GCM ciphertext, never plain text
+    blood_type_key_id  TEXT,                           -- key that encrypted blood_type (allows key rotation)
     birth_date         DATE,
     weight             NUMERIC(5, 2) CHECK (weight > 0),
     preferred_point_id UUID,                           -- donation point of ms-appointments (no cross-service FK)
@@ -18,7 +19,7 @@ CREATE TABLE donor (
 
 CREATE TABLE consent (
     id             UUID PRIMARY KEY,
-    donor_id       UUID        NOT NULL REFERENCES donor (id) ON DELETE CASCADE,
+    donor_id       UUID        NOT NULL REFERENCES donor (id) ON DELETE RESTRICT, -- deletion = anonymization
     purpose        TEXT        NOT NULL,               -- e.g. DATA_PROCESSING, CAMPAIGNS
     policy_version TEXT        NOT NULL,               -- version of the text the donor accepted
     granted_at     TIMESTAMPTZ NOT NULL,
@@ -31,7 +32,7 @@ CREATE UNIQUE INDEX uq_consent_active ON consent (donor_id, purpose) WHERE revok
 
 -- Local projection of DonationRecorded (ms-appointments), used for the eligibility calculation.
 CREATE TABLE last_donation (
-    donor_id          UUID   PRIMARY KEY REFERENCES donor (id) ON DELETE CASCADE,
+    donor_id          UUID   PRIMARY KEY REFERENCES donor (id) ON DELETE RESTRICT,
     donation_date     DATE   NOT NULL,
     aggregate_version BIGINT NOT NULL                  -- last applied event version: older events are ignored
 );

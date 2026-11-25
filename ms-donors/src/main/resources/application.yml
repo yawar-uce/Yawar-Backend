@@ -8,9 +8,9 @@ spring:
   application:
     name: ms-donors
   config:
-    # compose / Kubernetes set CONFIG_IMPORT=configserver:http://config-server:8888/config (required there);
-    # optional locally so the service also starts from the IDE without config-server.
-    import: ${CONFIG_IMPORT:optional:configserver:http://localhost:8888/config}
+    # Optional locally (the service also starts from the IDE without config-server); Kubernetes sets
+    # CONFIG_IMPORT_MODE to an empty value so the import is required (with CONFIG_FAIL_FAST=true).
+    import: "${CONFIG_IMPORT_MODE:optional:}configserver:${CONFIG_SERVER_URL:http://localhost:8888/config}"
   cloud:
     config:
       username: ${CONFIG_SERVER_USER:}
@@ -37,6 +37,8 @@ spring:
       ddl-auto: validate      # schema only through Flyway
   flyway:
     locations: classpath:db/yawar-platform,classpath:db/migration
+    # Migrations are not requests: no 5 s statement limit, a longer lock wait.
+    init-sqls: "SET statement_timeout = 0; SET lock_timeout = '10s'"
   rabbitmq:
     host: ${RABBITMQ_HOST:localhost}
     port: ${RABBITMQ_PORT:5672}
@@ -62,7 +64,8 @@ eureka:
   client:
     enabled: ${EUREKA_ENABLED:true}
     service-url:
-      defaultZone: ${EUREKA_URL:http://localhost:8761/eureka/}
+      # Same expression as yawar-config/application.yml (which overrides it when config-server runs).
+      defaultZone: http://${EUREKA_USER:eureka}:${EUREKA_PASSWORD:}@${EUREKA_HOST:localhost}:${EUREKA_PORT:8761}/eureka/
   instance:
     prefer-ip-address: true
 
@@ -89,10 +92,6 @@ management:
       export:
         otlp:
           endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/traces
-    logging:
-      export:
-        otlp:
-          endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/logs
   otlp:
     metrics:
       export:

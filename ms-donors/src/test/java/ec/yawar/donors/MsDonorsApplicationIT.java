@@ -70,6 +70,17 @@ class MsDonorsApplicationIT {
     }
 
     @Test
+    void consentsAndDonationHistoryAreNeverCascadeDeleted() {
+        // Deletion is anonymization (RF-17): the evidence stays.
+        List<String> rules = jdbc.sql("""
+                SELECT confdeltype FROM pg_constraint
+                WHERE conrelid IN ('consent'::regclass, 'last_donation'::regclass) AND contype = 'f'
+                """).query(String.class).list();
+
+        assertThat(rules).hasSize(2).containsOnly("r");
+    }
+
+    @Test
     void bloodTypeIsStoredAsCiphertextAndUserIdIsUnique() {
         String type = jdbc.sql("""
                 SELECT data_type FROM information_schema.columns WHERE table_name = 'donor' AND column_name = 'blood_type'

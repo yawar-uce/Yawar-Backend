@@ -27,8 +27,9 @@ class ArchitectureTest {
             .should().dependOnClassesThat().resideInAnyPackage("..donors.infrastructure..", "..donors.interfaces..");
 
     @ArchTest
-    static final ArchRule noRestClientsToOtherServices = noClasses()
-            .should().dependOnClassesThat().haveFullyQualifiedName("org.springframework.web.client.RestTemplate")
-            .orShould().dependOnClassesThat().haveFullyQualifiedName("org.springframework.web.client.RestClient")
-            .as("no REST between services (C-02): integrate through RabbitMQ");
+    static final ArchRule noHttpClientsToOtherServices = noClasses()
+            .should().dependOnClassesThat().resideInAnyPackage("org.springframework.web.client..",
+                    "org.springframework.web.reactive.function.client..", "java.net.http..", "feign..")
+            .as("no REST between services (C-02): integrate through RabbitMQ; an external adapter uses "
+                    + "yawar-platform's ExternalCallExecutor and needs an explicit exception here");
 }

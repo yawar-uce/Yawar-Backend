@@ -26,3 +26,7 @@ secrets.auto.tfvars
 
 # Local environment (real values, generated secrets)
 deploy/local/.secrets/
+
+# Python bytecode (deploy/keycloak/test_realm.py)
+__pycache__/
+*.pyc

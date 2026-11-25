@@ -1,0 +1,5 @@
+# ms-donors in production (AWS account B).
+env:
+  YAWAR_ENV: production
+  RABBITMQ_VHOST: yawar-production
+  TRACING_SAMPLING: "0.2"

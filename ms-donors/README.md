@@ -6,7 +6,7 @@ database `donors_db` (PostgreSQL). This is the skeleton (YAW-36); the endpoints 
 
 | Documented | Value |
 |---|---|
-| Tables | `donor` (blood type as AES-GCM ciphertext, `version` for If-Match), `consent` (one active per purpose), `last_donation` (projection of DonationRecorded), `outbox`, `inbox` |
+| Tables | `donor` (blood type as AES-GCM ciphertext + key id, `version` for If-Match), `consent` (one active per purpose), `last_donation` (projection of DonationRecorded), `outbox`, `inbox` |
 | Endpoints | `GET /api/v1/donors/me` · `PUT /api/v1/donors/me` (If-Match) · `POST /api/v1/donors/me/consents` |
 | Publishes | DonorRegistered, ProfileCompleted, EligibilityChanged, ConsentRevoked, PersonalDataAccessed (outbox) |
 | Consumes | DonationRecorded (inbox, `BaseConsumer`) |
@@ -22,8 +22,9 @@ src/main/resources/db/migration/V1__init.sql   (outbox/inbox: yawar-platform V0_
 ```
 
 ## Runtime
-- **Configuration:** from config-server (`yawar-config/ms-donors.yml`); `CONFIG_IMPORT` is required in Kubernetes
-  (`CONFIG_FAIL_FAST=true`: a pod without configuration does not start) and optional locally.
+- **Configuration:** from config-server (`CONFIG_SERVER_URL`, `yawar-config/ms-donors.yml`, profile `YAWAR_ENV`);
+  required in Kubernetes (`CONFIG_IMPORT_MODE=""`, `CONFIG_FAIL_FAST=true`: a pod without configuration does not
+  start) and optional locally.
 - **Registry:** registers in Eureka with its IP (`prefer-ip-address: true`).
 - **Security:** Keycloak JWT, issuer `KEYCLOAK_ISSUER_URI`, keys from `KEYCLOAK_JWK_SET_URI`, audience `yawar-api`;
   `/api/v1/donors/**` needs the `donor` role, everything else except probes and OpenAPI is denied.
@@ -31,8 +32,8 @@ src/main/resources/db/migration/V1__init.sql   (outbox/inbox: yawar-platform V0_
   (`ddl-auto: validate`).
 - **Probes:** `/health/live`, `/health/ready` (PostgreSQL + RabbitMQ). **OpenAPI:** `/v3/api-docs`,
   Swagger UI at `/swagger-ui/index.html` (disabled in Kubernetes).
-- **Observability:** OTLP traces, logs and metrics to `OTEL_EXPORTER_OTLP_ENDPOINT` (Grafana otel-lgtm locally),
-  `X-Correlation-Id` in every response.
+- **Observability:** OTLP traces and metrics to `OTEL_EXPORTER_OTLP_ENDPOINT` (Grafana otel-lgtm locally); logs are
+  ECS JSON on stdout; `X-Correlation-Id` in every response.
 
 ## Build and run
 ```bash

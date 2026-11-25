@@ -1,4 +1,5 @@
 # Values of the shared chart yawar-service for ms-donors (YAW-36). The chart arrives with YAW-13.
+# YAWAR_ENV (config profile) and RABBITMQ_VHOST are set per environment in ms-donors-<env>.yaml.
 # Sizes from deployment.md §12.4: requests 512Mi / limit 768Mi; lab profile 1 replica, 100m CPU.
 nameOverride: ms-donors
 image:
@@ -11,7 +12,8 @@ probes:
   liveness: /health/live
   readiness: /health/ready             # includes PostgreSQL and RabbitMQ
 env:
-  CONFIG_IMPORT: configserver:http://config-server:8888/config   # required in Kubernetes
+  CONFIG_SERVER_URL: http://config-server:8888/config
+  CONFIG_IMPORT_MODE: ""               # empty = the configuration import is required in Kubernetes
   CONFIG_FAIL_FAST: "true"             # fallback: a pod without configuration does not start (it is restarted)
   RABBITMQ_HOST: rabbitmq
   EUREKA_HOST: discovery-service
