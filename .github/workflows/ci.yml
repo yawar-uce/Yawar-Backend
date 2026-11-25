@@ -9,9 +9,15 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  # Secrets, build, unit + integration tests (Testcontainers), coverage gate and dependency scan.
   ci:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
@@ -29,10 +35,34 @@ jobs:
           cache: maven
 
       # One reactor build from the root aggregator pom: yawar-platform first, then every service.
-      # verify = unit tests + integration tests (Testcontainers, Docker is available on ubuntu-latest)
-      # + JaCoCo report and the 70 % gate of each module (V-01).
+      # verify = unit tests (surefire) + integration tests (failsafe, Testcontainers: Docker is available on
+      # ubuntu-latest) + JaCoCo report and the 70 % gate of each module (V-01).
       - name: Build and test every module (coverage ≥ 70 %, V-01)
         run: ./mvnw -B -ntp verify
+
+      - name: Coverage summary
+        if: always()
+        run: .github/scripts/coverage-summary.sh >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload coverage reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-reports
+          path: '*/target/site/jacoco/'
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Upload test reports (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            */target/surefire-reports/
+            */target/failsafe-reports/
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Trivy filesystem scan (V-03)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
@@ -41,3 +71,24 @@ jobs:
           severity: HIGH,CRITICAL
           exit-code: '1'
           ignore-unfixed: true
+          skip-dirs: '**/target'
+
+  # Docker image of every module with a Dockerfile + Trivy image scan (V-03). No push: CD (YAW-16) pushes to ECR.
+  images:
+    needs: ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Trivy vulnerability database
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/trivy
+          key: trivy-db-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: trivy-db-${{ runner.os }}-
+
+      - name: Build images and scan them with Trivy
+        env:
+          TAG: ${{ github.sha }}
+        run: .github/scripts/build-images.sh

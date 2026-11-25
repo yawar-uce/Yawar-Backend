@@ -54,6 +54,19 @@ Its pom must define `<skipTests>false</skipTests>` and `<skipUTs>${skipTests}</s
 (unit tests `*Test`), failsafe for `*IT`, and JaCoCo `prepare-agent` + `report` + `check` (LINE covered
 ratio ≥ 0.70) at `verify`.
 
+## CI (`.github/workflows/ci.yml`)
+
+Runs on every pull request and push to `dev`, `qa` and `production`:
+
+| Job | Steps | Gate |
+|---|---|---|
+| `ci` | gitleaks (whole history) → `./mvnw verify` (unit + Testcontainers integration tests of every module) → JaCoCo summary in the job page and `coverage-reports` artifact (test reports too when it fails) → Trivy filesystem scan | secrets, test failures, coverage < 70 % per module (V-01), HIGH/CRITICAL dependency with a fix (V-03) |
+| `images` | `.github/scripts/build-images.sh`: builds the image of every module with a Dockerfile (repository root as context when it copies `yawar-platform`) and scans it with Trivy | HIGH/CRITICAL image vulnerability with a fix (V-03) |
+
+Images are tagged `yawar/<module>:<commit SHA>` and not pushed here: pushing to ECR and deploying is CD (YAW-16).
+Run the same checks locally: `.github/scripts/coverage-summary.sh` after `make coverage`, and
+`.github/scripts/build-images.sh [module]` (Docker must be running).
+
 ## Local environment
 
 Shared infrastructure for development, defined in [deploy/local/docker-compose.yml](deploy/local/docker-compose.yml).

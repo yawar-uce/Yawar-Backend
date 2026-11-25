@@ -15,6 +15,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions per m
 - `yawar-platform` 0.1.0-SNAPSHOT: Yawar message envelope, transactional outbox with `FOR UPDATE SKIP LOCKED` relay and publisher confirms, idempotent inbox + `BaseConsumer` (retry queue, DLQ after 5 attempts), quorum queue topology, correlation id and W3C trace propagation (HTTP, outbox, AMQP), Resilience4j `ExternalCallExecutor` and `X-Deadline-Ms` deadline for external adapters (YAW-12).
 
 ### Changed
+- CI: per-module JaCoCo summary and `coverage-reports` artifact, test reports on failure, Trivy fs scan skipping build output, new `images` job that builds every module image and scans it with Trivy (HIGH/CRITICAL fails), cancellation of superseded runs (YAW-15).
 - Local RabbitMQ upgraded from 3.13 to 4.2 (`rabbitmq:4.2.9-management-alpine`); run `make reset` once to drop the old 3.13 data volume (YAW-11).
 - Local vhosts `yawar-dev` and `yawar-qa` default to quorum queues (YAW-11).
 - Repository layout: one top-level folder per module (`yawar-platform/`, `config-server/`, `discovery-service/`, `api-gateway/`, `ms-<name>/`) instead of `services/` and `libs/`; root aggregator `pom.xml` with Maven wrapper 3.9.16; CI builds everything with `./mvnw verify`; Makefile targets build/test/test-it/acceptance/contract/coverage with `S=<folder>` (YAW-11).
