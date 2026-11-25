@@ -21,8 +21,10 @@
         <java.version>21</java.version>
         <resilience4j.version>2.4.0</resilience4j.version>
         <jacoco.version>0.8.16</jacoco.version>
-        <!-- make test-it / acceptance skip the unit tests with -DskipUTs=true -->
-        <skipUTs>false</skipUTs>
+        <!-- -DskipTests skips every test; -DskipUTs=true (make test-it / acceptance) skips only unit tests.
+             skipUTs must default to skipTests: surefire's explicit <skipTests> would otherwise ignore -DskipTests. -->
+        <skipTests>false</skipTests>
+        <skipUTs>${skipTests}</skipUTs>
         <jacoco.minimum>0.70</jacoco.minimum>
     </properties>
 
