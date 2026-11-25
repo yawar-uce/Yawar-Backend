@@ -19,11 +19,11 @@
 
     <modules>
         <module>yawar-platform</module>
+        <module>ms-donors</module>
         <!-- Added by the tasks that create them:
         <module>config-server</module>       YAW-216
         <module>discovery-service</module>   YAW-217
         <module>api-gateway</module>         YAW-33
-        <module>ms-donors</module>           YAW-36
         -->
     </modules>
 </project>
