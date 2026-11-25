@@ -42,8 +42,9 @@ Local credentials live in `deploy/local/.env` (git-ignored). Edit that file, nev
 |---|---|---|
 | PostgreSQL 16 | `localhost:5432` — databases `donors_db`, `keycloak_db` | admin `POSTGRES_USER`; one owner role per database (`DONORS_DB_USER`, ...) |
 | Keycloak | http://localhost:8080 (admin console at `/admin`) | `KEYCLOAK_ADMIN_USER` / `KEYCLOAK_ADMIN_PASSWORD` |
-| RabbitMQ | AMQP `localhost:5672`, UI http://localhost:15672 — vhosts `yawar-dev`, `yawar-qa` | `RABBITMQ_USER` / `RABBITMQ_PASSWORD` |
+| RabbitMQ 4.2 | AMQP `localhost:5672`, UI http://localhost:15672 — vhosts `yawar-dev`, `yawar-qa` | `RABBITMQ_USER` / `RABBITMQ_PASSWORD` |
 | Mailpit | SMTP `localhost:1025`, UI http://localhost:8025 | none (accepts any SMTP auth) |
+| Grafana otel-lgtm | Grafana http://localhost:3000 (traces in Tempo, logs in Loki, metrics in Prometheus); OTLP gRPC `localhost:4317`, HTTP `localhost:4318` | none (anonymous admin, bound to 127.0.0.1) |
 
 ### Everyday commands
 ```bash
@@ -69,6 +70,8 @@ The PostgreSQL init script only runs on an empty volume: after changing database
   `postgresql-x64-*` services). Stop it, or set another host port in `deploy/local/.env`, e.g.
   `POSTGRES_PORT=5433`. The same works for every `*_PORT` variable.
 - `make up` warns when `.env.example` is newer than your `.env`: copy any new keys into `.env`.
+- RabbitMQ keeps restarting after pulling the 4.2 upgrade: the volume still holds 3.13 data, which 4.2
+  cannot start from. Run `make reset` once (it deletes the local data), then `make up`.
 
 ### Optional profiles
 Later tasks add compose profiles, started with `make up PROFILE=<name>`: `ad` (Samba AD) and
