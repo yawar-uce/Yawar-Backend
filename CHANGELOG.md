@@ -12,6 +12,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions per m
 - Local Kubernetes with kind: cluster `yawar` (ingress-ready 80/443), local registry `localhost:5001`, namespaces `yawar-dev` and `yawar-qa`, targets kind-up/kind-down/kind-smoke (YAW-14).
 - Keycloak realms as code `yawar-dev` and `yawar-qa` (keycloak-config-cli): self-registration with required privacy consent, email verification through Mailpit, roles donor/recruitment/logistics/hospital/administrator/auditor/agent (new users get donor only), public client `yawar-web` with Authorization Code + PKCE S256, Google identity provider from environment variables; targets keycloak-import and keycloak-check (YAW-31).
 - `yawar-platform` 0.1.0-SNAPSHOT: Yawar message envelope, transactional outbox with `FOR UPDATE SKIP LOCKED` relay and publisher confirms, idempotent inbox + `BaseConsumer` (retry queue, DLQ after 5 attempts), quorum queue topology, correlation id and W3C trace propagation (HTTP, outbox, AMQP), Resilience4j `ExternalCallExecutor` and `X-Deadline-Ms` deadline for external adapters (YAW-12).
+- `discovery-service` 0.1.0-SNAPSHOT: Eureka server (HTTP Basic on dashboard and registry, CSRF ignored only for `/eureka/**`, probes `/health/live` and `/health/ready`, optional config import), Dockerfile, compose profile `platform`, Helm values (YAW-217).
 
 ### Changed
 - Local RabbitMQ upgraded from 3.13 to 4.2 (`rabbitmq:4.2.9-management-alpine`); run `make reset` once to drop the old 3.13 data volume (YAW-11).
