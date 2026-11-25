@@ -1,0 +1,26 @@
+# Values of the shared chart yawar-service for config-server (YAW-216). The chart itself arrives with YAW-13;
+# environment overrides go in config-server-qa.yaml / config-server-production.yaml next to this file.
+nameOverride: config-server
+image:
+  repository: yawar/config-server     # ECR repository; the tag is the commit SHA set by CD
+containerPort: 8888
+service:
+  port: 8888                          # ClusterIP only: never exposed through the Ingress
+probes:
+  liveness: /health/live
+  readiness: /health/ready
+env:
+  CONFIG_SERVER_PROFILES: git
+  CONFIG_GIT_URI: https://github.com/yawar-uce/yawar-config.git
+  CONFIG_GIT_LABEL: main
+  RABBITMQ_HOST: rabbitmq
+  LOGGING_STRUCTURED_FORMAT_CONSOLE: ecs
+# Kubernetes Secret config-server-secrets: CONFIG_SERVER_USER, CONFIG_SERVER_PASSWORD, CONFIG_GIT_TOKEN,
+# RABBITMQ_USER, RABBITMQ_PASSWORD (created per environment, never committed).
+envFromSecret: config-server-secrets
+resources:
+  requests:
+    cpu: 100m
+    memory: 384Mi
+  limits:
+    memory: 512Mi
