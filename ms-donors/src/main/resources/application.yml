@@ -75,6 +75,9 @@ management:
       base-path: /
       exposure:
         include: health,info
+  info:
+    env:
+      enabled: true           # info.* properties (environment, config refresh demo) at /info
   endpoint:
     health:
       probes:
