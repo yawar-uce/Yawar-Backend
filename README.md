@@ -4,8 +4,10 @@ Monorepo of the Yawar blood-donation platform (Ecuador). Java 21 / Spring Boot, 
 
 ## Layout
 ```
-services/                    one Maven project per microservice (ms-donors, ...)
-libs/yawar-platform/         shared library: event envelope, outbox, inbox, correlation id
+pom.xml, mvnw, .mvn/         root aggregator (packaging pom) that only lists the modules
+yawar-platform/              shared library: event envelope, outbox, inbox, correlation id
+config-server/ discovery-service/ api-gateway/   platform services (Sprint 2)
+ms-donors/ ms-appointments/ …   one top-level folder per microservice, named exactly as in Jira
 deploy/local/                docker compose for the local environment (.env.example, init scripts)
 deploy/kind/                 local Kubernetes cluster (kind)
 deploy/helm/yawar-service/   shared Helm chart
@@ -22,6 +24,34 @@ Makefile                     single entry point (`make help`)
 |---|---|---|
 | Identity (Keycloak + API Gateway) | Login, roles, AD federation | EP-07 |
 | `ms-donors` | Donor registration and profile | EP-01 |
+
+## Build and test
+
+Every module is a top-level folder with its own `pom.xml`, Maven wrapper (`mvnw`, `mvnw.cmd`, `.mvn/`),
+`Dockerfile` and `src/`. The root `pom.xml` only lists the modules (`yawar-platform` first), so the whole
+backend builds in one command:
+
+```bash
+./mvnw verify                     # every module: unit + integration tests + JaCoCo 70 % gate (what CI runs)
+./mvnw -pl ms-donors -am verify   # one module plus the modules it depends on (yawar-platform)
+```
+A module can also be built from its own folder (`cd ms-donors && ./mvnw verify`) once the modules it depends
+on are in `~/.m2` (`./mvnw -pl yawar-platform install` from the root).
+
+The Makefile wraps the test layers; `S=<folder>` limits them to one module:
+
+```bash
+make test S=ms-donors        # unit tests (*Test)
+make test-it S=ms-donors     # integration tests with Testcontainers (*IT), Docker must be running
+make acceptance S=ms-donors  # one test per Gherkin scenario (*AcceptanceIT, named hu01_sc1_…)
+make contract S=ms-donors    # OpenAPI/AsyncAPI contract tests (*ContractIT)
+make coverage S=ms-donors    # all tests + gate; prints line coverage and the JaCoCo HTML report path
+```
+
+A new module: create the folder (name exactly as in Jira) and add it to `<modules>` in the root `pom.xml`.
+Its pom must define `<skipUTs>false</skipUTs>`, configure surefire with `<skipTests>${skipUTs}</skipTests>`
+(unit tests `*Test`), failsafe for `*IT`, and JaCoCo `prepare-agent` + `report` + `check` (LINE covered
+ratio ≥ 0.70) at `verify`.
 
 ## Local environment
 

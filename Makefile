@@ -2,6 +2,7 @@
 # Run `make help` to list the targets.
 
 SHELL := /bin/bash
+, := ,
 .DEFAULT_GOAL := help
 
 LOCAL_DIR := deploy/local
@@ -12,7 +13,8 @@ COMPOSE   := docker compose --env-file $(ENV_FILE) -f $(LOCAL_DIR)/docker-compos
 PROFILE ?=
 PROFILE_FLAGS := $(foreach p,$(PROFILE),--profile $(p))
 
-# `make logs S=keycloak` · `make psql DB=donors_db` · `make psql SQL='\l'`
+# `make logs S=keycloak` (compose service) · `make test S=ms-donors` (module folder)
+# `make psql DB=donors_db` · `make psql SQL='\l'`
 S   ?=
 DB  ?= postgres
 SQL ?=
@@ -63,4 +65,5 @@ psql: $(ENV_FILE) ## Open psql as the admin user (DB=<database>, SQL='<command>'
 	fi
 
 # Each area keeps its targets in its own file to avoid conflicts between tasks.
+include build.mk
 include deploy/kind/kind.mk
