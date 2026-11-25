@@ -1,0 +1,175 @@
+# Realm yawar-qa (QA, AWS account A — https://yawar-qa-<ip>.sslip.io) — imported by keycloak-config-cli (YAW-31, EP-07 RF-01..RF-06).
+# Values in $(env:...) come from the QA Secret / Helm values (KC_WEB_URL = https://yawar-qa-<ip>.sslip.io); secrets (Google client secret) never live in this file.
+realm: yawar-qa
+enabled: true
+displayName: Yawar
+displayNameHtml: "<b>Yawar</b>"
+
+# --- Sign-up and login (RF-01, RF-02, RF-06) ---
+registrationAllowed: true
+registrationEmailAsUsername: true
+loginWithEmailAllowed: true
+duplicateEmailsAllowed: false
+verifyEmail: true
+resetPasswordAllowed: true
+rememberMe: false
+editUsernameAllowed: false
+# QA is served over HTTPS (cert-manager, YAW-215).
+sslRequired: external
+
+# --- Credentials (RNF-01: Keycloak hashes with Argon2) and brute-force protection ---
+passwordPolicy: "length(10) and notUsername and notEmail and passwordHistory(3)"
+bruteForceProtected: true
+failureFactor: 5
+waitIncrementSeconds: 60
+maxFailureWaitSeconds: 900
+
+# --- Short-lived tokens (RNF-01) ---
+accessTokenLifespan: 300
+ssoSessionIdleTimeout: 1800
+ssoSessionMaxLifespan: 36000
+revokeRefreshToken: true
+refreshTokenMaxReuse: 0
+
+# --- Spanish UI, English as second language ---
+internationalizationEnabled: true
+supportedLocales: [es, en]
+defaultLocale: es
+localizationTexts:
+  es:
+    privacyConsent: "Consentimiento de datos personales"
+    privacyConsentAccepted: "Acepto el tratamiento de mis datos personales por Yawar según la LOPDP"
+  en:
+    privacyConsent: "Personal data consent"
+    privacyConsentAccepted: "I accept the processing of my personal data by Yawar under the LOPDP"
+
+# --- Email: in-cluster Mailpit in QA (no real mail is sent) ---
+smtpServer:
+  host: "$(env:KC_SMTP_HOST:-mailpit)"
+  port: "$(env:KC_SMTP_PORT:-1025)"
+  from: "$(env:KC_SMTP_FROM:-no-reply@yawar-qa.local)"
+  fromDisplayName: Yawar
+  auth: "false"
+  ssl: "false"
+  starttls: "false"
+
+# --- Roles (YAW-DOC-07, security skill). New self-registered users get "donor" only. ---
+roles:
+  realm:
+    - name: donor
+      description: Blood donor (self-registered)
+    - name: recruitment
+      description: Recruitment staff (campaigns, donation points)
+    - name: logistics
+      description: Logistics staff (inventory, cold chain, dispatch)
+    - name: hospital
+      description: Hospital user (blood requests)
+    - name: administrator
+      description: Platform administrator
+    - name: auditor
+      description: Auditor (read-only access logs and traceability)
+    - name: agent
+      description: Service role of the AI agent (MCP tools)
+    # Default role of the realm: what every new user (self-registered or Google) receives.
+    - name: default-roles-yawar-qa
+      description: Roles of every new user
+      composite: true
+      composites:
+        realm: [donor, offline_access, uma_authorization]
+        client:
+          account: [view-profile, manage-account]
+
+# --- Public SPA client: Authorization Code + PKCE S256 only (no implicit, no password grant) ---
+clients:
+  - clientId: yawar-web
+    name: Yawar web
+    enabled: true
+    publicClient: true
+    protocol: openid-connect
+    standardFlowEnabled: true
+    implicitFlowEnabled: false
+    directAccessGrantsEnabled: false
+    serviceAccountsEnabled: false
+    frontchannelLogout: true
+    # Least privilege: tokens carry only the realm roles mapped below (scopeMappings), not every role.
+    fullScopeAllowed: false
+    rootUrl: "$(env:KC_WEB_URL:-https://yawar-qa.invalid)"
+    baseUrl: /
+    redirectUris:
+      - "$(env:KC_WEB_URL:-https://yawar-qa.invalid)/*"
+    webOrigins:
+      - "$(env:KC_WEB_URL:-https://yawar-qa.invalid)"
+    attributes:
+      pkce.code.challenge.method: S256
+      post.logout.redirect.uris: "$(env:KC_WEB_URL:-https://yawar-qa.invalid)/*"
+    defaultClientScopes: [web-origins, acr, profile, roles, basic, email]
+    optionalClientScopes: [offline_access]
+    protocolMappers:
+      # Tokens carry the API audience so the API Gateway can reject tokens issued for other clients.
+      - name: yawar-api-audience
+        protocol: openid-connect
+        protocolMapper: oidc-audience-mapper
+        config:
+          included.custom.audience: yawar-api
+          access.token.claim: "true"
+          id.token.claim: "false"
+
+scopeMappings:
+  - client: yawar-web
+    roles: [donor, recruitment, logistics, hospital, administrator, auditor]
+
+# --- Google sign-in / account linking (HU-02). Disabled until KC_GOOGLE_* are set in .env. ---
+identityProviders:
+  - alias: google
+    providerId: google
+    displayName: Google
+    enabled: $(env:KC_GOOGLE_ENABLED:-false)
+    trustEmail: true
+    storeToken: false
+    firstBrokerLoginFlowAlias: first broker login
+    config:
+      clientId: "$(env:KC_GOOGLE_CLIENT_ID:-not-configured)"
+      clientSecret: "$(env:KC_GOOGLE_CLIENT_SECRET:-not-configured)"
+      defaultScope: openid email profile
+      syncMode: IMPORT
+      useJwksUrl: "true"
+
+# --- User profile: privacy consent is required at sign-up and in "review profile" after Google login ---
+components:
+  org.keycloak.userprofile.UserProfileProvider:
+    - providerId: declarative-user-profile
+      subComponents: {}
+      config:
+        kc.user.profile.config:
+          - |
+            {
+              "unmanagedAttributePolicy": "ADMIN_VIEW",
+              "attributes": [
+                {"name": "username", "displayName": "${username}",
+                 "validations": {"length": {"min": 3, "max": 255}, "username-prohibited-characters": {},
+                                 "up-username-not-idn-homograph": {}},
+                 "permissions": {"view": ["admin", "user"], "edit": ["admin", "user"]}, "multivalued": false},
+                {"name": "email", "displayName": "${email}",
+                 "validations": {"email": {}, "length": {"max": 255}},
+                 "required": {"roles": ["user"]},
+                 "permissions": {"view": ["admin", "user"], "edit": ["admin", "user"]}, "multivalued": false},
+                {"name": "firstName", "displayName": "${firstName}",
+                 "validations": {"length": {"max": 255}, "person-name-prohibited-characters": {}},
+                 "required": {"roles": ["user"]},
+                 "permissions": {"view": ["admin", "user"], "edit": ["admin", "user"]}, "multivalued": false},
+                {"name": "lastName", "displayName": "${lastName}",
+                 "validations": {"length": {"max": 255}, "person-name-prohibited-characters": {}},
+                 "required": {"roles": ["user"]},
+                 "permissions": {"view": ["admin", "user"], "edit": ["admin", "user"]}, "multivalued": false},
+                {"name": "privacy_consent", "displayName": "${privacyConsent}",
+                 "validations": {"options": {"options": ["accepted"]}},
+                 "annotations": {"inputType": "multiselect-checkboxes",
+                                 "inputOptionLabels": {"accepted": "${privacyConsentAccepted}"}},
+                 "required": {"roles": ["user"]},
+                 "permissions": {"view": ["admin", "user"], "edit": ["admin", "user"]}, "multivalued": true}
+              ],
+              "groups": [
+                {"name": "user-metadata", "displayHeader": "User metadata",
+                 "displayDescription": "Attributes, which refer to user metadata"}
+              ]
+            }
