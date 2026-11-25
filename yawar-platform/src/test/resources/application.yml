@@ -1,0 +1,16 @@
+spring:
+  application:
+    name: platform-it
+  main:
+    web-application-type: none
+  rabbitmq:
+    publisher-confirm-type: correlated
+    listener:
+      simple:
+        prefetch: 10
+  flyway:
+    locations: classpath:db/yawar-platform,classpath:db/it
+yawar:
+  platform:
+    outbox:
+      poll-interval: 100ms
