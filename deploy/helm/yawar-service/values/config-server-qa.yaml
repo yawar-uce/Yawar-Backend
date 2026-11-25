@@ -1,0 +1,3 @@
+# config-server in qa (AWS account A, namespace yawar-qa).
+env:
+  RABBITMQ_VHOST: yawar-qa

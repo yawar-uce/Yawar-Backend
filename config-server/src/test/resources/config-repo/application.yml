@@ -1,0 +1,4 @@
+# Shared by every service (test copy of yawar-config/application.yml).
+yawar:
+  test:
+    shared: from-application

@@ -1,0 +1,3 @@
+# config-server in production (AWS account B).
+env:
+  RABBITMQ_VHOST: yawar-production

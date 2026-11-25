@@ -1,6 +1,6 @@
 # Yawar local environment: shared infrastructure for development.
 # Use the Makefile at the repository root (`make up`, `make ps`, `make down`, `make reset`).
-# Optional profiles: `platform` (Yawar services built from their module folders; `make up PROFILE=platform`),
+# Optional profiles: `platform` (config-server, discovery-service, ms-donors; `make up PROFILE=platform`),
 # `ad` (Samba AD), `gateway` (API Gateway).
 
 name: ${COMPOSE_PROJECT_NAME:-yawar}
@@ -149,6 +149,42 @@ services:
       retries: 30
       start_period: 30s
 
+  # Spring Cloud Config Server (YAW-216). Built from ../../config-server. CONFIG_SERVER_PROFILES=native reads the
+  # local clone ../../../yawar-config (~/yawar/yawar-config); =git reads yawar-uce/yawar-config with CONFIG_GIT_TOKEN.
+  config-server:
+    profiles: ["platform"]
+    build:
+      context: ../../config-server
+    image: yawar/config-server:local
+    restart: unless-stopped
+    environment:
+      CONFIG_SERVER_PROFILES: ${CONFIG_SERVER_PROFILES:-native}
+      CONFIG_SERVER_USER: ${CONFIG_SERVER_USER:?set CONFIG_SERVER_USER in deploy/local/.env (see .env.example)}
+      CONFIG_SERVER_PASSWORD: ${CONFIG_SERVER_PASSWORD:?set CONFIG_SERVER_PASSWORD in deploy/local/.env}
+      CONFIG_ADMIN_USER: ${CONFIG_ADMIN_USER:?set CONFIG_ADMIN_USER in deploy/local/.env}
+      CONFIG_ADMIN_PASSWORD: ${CONFIG_ADMIN_PASSWORD:?set CONFIG_ADMIN_PASSWORD in deploy/local/.env}
+      CONFIG_NATIVE_DIR: file:/config-repo
+      CONFIG_GIT_URI: ${CONFIG_GIT_URI:-https://github.com/yawar-uce/yawar-config.git}
+      CONFIG_GIT_USERNAME: ${CONFIG_GIT_USERNAME:-x-access-token}
+      CONFIG_GIT_TOKEN: ${CONFIG_GIT_TOKEN:-}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: ${RABBITMQ_USER}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      RABBITMQ_VHOST: yawar-dev
+    ports:
+      - "127.0.0.1:${CONFIG_SERVER_PORT:-8888}:8888"
+    volumes:
+      - ${YAWAR_CONFIG_DIR:-../../../yawar-config}:/config-repo:ro
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8888/health/ready >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+      start_period: 40s
+
   # ms-donors (YAW-36). Uses donors_db in the shared local PostgreSQL (one database + owner role per service;
   # separate instances on AWS). Imports its configuration from config-server when it is running (optional).
   ms-donors:
@@ -160,7 +196,7 @@ services:
     restart: unless-stopped
     environment:
       YAWAR_ENV: dev
-      CONFIG_SERVER_URL: http://config-server:8888/config   # optional import until config-server is in compose
+      CONFIG_SERVER_URL: http://config-server:8888/config
       CONFIG_SERVER_USER: ${CONFIG_SERVER_USER:-}
       CONFIG_SERVER_PASSWORD: ${CONFIG_SERVER_PASSWORD:-}
       DONORS_DB_URL: jdbc:postgresql://postgres:5432/${DONORS_DB_NAME}
@@ -183,6 +219,8 @@ services:
       postgres:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+      config-server:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8081/health/ready >/dev/null || exit 1"]
