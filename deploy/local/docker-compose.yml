@@ -32,7 +32,7 @@ services:
       start_period: 10s
 
   rabbitmq:
-    image: rabbitmq:3.13-management-alpine
+    image: rabbitmq:4.2.9-management-alpine
     restart: unless-stopped
     hostname: rabbitmq
     entrypoint: ["/bin/sh", "/opt/yawar/rabbitmq-entrypoint.sh"]
