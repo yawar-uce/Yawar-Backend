@@ -11,10 +11,11 @@ probes:
   readiness: /health/ready
 env:
   CONFIG_SERVER_URL: http://config-server:8888/config
-  EUREKA_SELF_PRESERVATION: "false"      # pods are replaced often on the lab cluster
   LOGGING_STRUCTURED_FORMAT_CONSOLE: ecs
 # Kubernetes Secret discovery-service-secrets: EUREKA_USER, EUREKA_PASSWORD, CONFIG_SERVER_USER,
-# CONFIG_SERVER_PASSWORD (per environment, never committed).
+# CONFIG_SERVER_PASSWORD (per environment, never committed). Every client service's Secret needs EUREKA_USER and
+# EUREKA_PASSWORD too (they build the defaultZone URL): use alphanumeric passwords so the URL never needs encoding.
+# YAW-13: a NetworkPolicy lets only pods labelled app.kubernetes.io/part-of=yawar reach port 8761.
 envFromSecret: discovery-service-secrets
 securityContext:
   runAsNonRoot: true

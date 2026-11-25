@@ -1,0 +1,4 @@
+# discovery-service in qa (AWS account A): pods are replaced often on the single-node lab cluster, so expired
+# instances are evicted instead of kept by self-preservation. Production keeps the default (true).
+env:
+  EUREKA_SELF_PRESERVATION: "false"

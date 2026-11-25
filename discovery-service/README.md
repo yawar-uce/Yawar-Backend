@@ -10,14 +10,18 @@ its `lb://ms-donors` routes through it. Spring Boot 4.1, Spring Cloud 2025.1, po
 | `/eureka/**` | Basic | registry API used by the services (register, renew, fetch) |
 | `/health/live`, `/health/ready` | none | Kubernetes probes |
 
-Clients use `eureka.client.service-url.defaultZone=http://${EUREKA_USER}:${EUREKA_PASSWORD}@<host>:8761/eureka/`.
+Clients get `eureka.client.service-url.defaultZone=http://${EUREKA_USER}:${EUREKA_PASSWORD}@${EUREKA_HOST}:${EUREKA_PORT}/eureka/`
+from `yawar-config/application.yml` (`EUREKA_HOST` defaults to `localhost`, `EUREKA_PORT` to `8761`). Use
+alphanumeric passwords so the URL never needs encoding; `com.netflix` logs stay at WARN in qa and production so
+the URL is never printed. The server itself advertises `localhost` and points `defaultZone` at itself without
+credentials (`discovery-service.yml`), so a single node has no peers and never replicates to itself.
 Fallback when the registry is down: services keep their cached registry (30 s refresh), and inside Kubernetes the
 Service DNS names keep working.
 
 | Variable | Meaning |
 |---|---|
 | `EUREKA_USER`, `EUREKA_PASSWORD` | Basic credentials (required, no default) |
-| `EUREKA_SELF_PRESERVATION` | `true` by default; `false` in dev/kind, where instances come and go |
+| `EUREKA_SELF_PRESERVATION` | `true` by default (production); `false` in compose and qa, where instances come and go |
 | `CONFIG_SERVER_URL`, `CONFIG_SERVER_USER`, `CONFIG_SERVER_PASSWORD` | optional configuration import |
 
 ```bash
