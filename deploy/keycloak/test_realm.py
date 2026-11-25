@@ -79,10 +79,11 @@ def jwt_claims(token):
 
 
 class LocalhostCookiePolicy(http.cookiejar.DefaultCookiePolicy):
-    """Keycloak marks its cookies Secure; browsers still send them to http://localhost, so do the same."""
+    """Keycloak marks its cookies Secure; browsers still send them to http://localhost, so do the same there only."""
 
     def return_ok_secure(self, cookie, request):
-        return True
+        host = urllib.parse.urlparse(request.get_full_url()).hostname
+        return host in ("localhost", "127.0.0.1") or super().return_ok_secure(cookie, request)
 
 
 def browser():
@@ -137,7 +138,10 @@ def configuration_checks(token):
     check("only Authorization Code flow (no implicit, no password grant)", c.get("standardFlowEnabled")
           and not c.get("implicitFlowEnabled") and not c.get("directAccessGrantsEnabled"))
     check("PKCE S256 required", (c.get("attributes") or {}).get("pkce.code.challenge.method") == "S256")
-    check("redirect URI limited to the web origin", c.get("redirectUris") == [WEB + "/*"], c.get("redirectUris"))
+    check("only exact redirect URIs (callback, silent SSO)", sorted(c.get("redirectUris") or [])
+          == sorted([WEB + "/callback", WEB + "/silent-check-sso.html"]), c.get("redirectUris"))
+    check("no offline tokens for the browser client", "offline_access" not in (c.get("optionalClientScopes") or [])
+          and "offline_access" not in (c.get("defaultClientScopes") or []))
 
     status, _, idp = admin("/identity-provider/instances/google", token)
     check("Google identity provider defined", status == 200 and idp.get("providerId") == "google")
@@ -192,6 +196,18 @@ def pkce_login_checks(token):
         aud = claims.get("aud")
         check("access token audience includes yawar-api", "yawar-api" in (aud if isinstance(aud, list) else [aud]))
         check("access token issuer is the realm", claims.get("iss") == f"{KC}/realms/{REALM}", claims.get("iss"))
+        check("access token has sub and verified email", bool(claims.get("sub")) and claims.get("email") == email
+              and claims.get("email_verified") is True)
+        check("access token carries the privacy consent", claims.get("privacy_consent") == ["accepted"],
+              claims.get("privacy_consent"))
+        roles = set((claims.get("realm_access") or {}).get("roles", []))
+        check("donor token has no staff, agent or offline roles",
+              not roles & {"recruitment", "logistics", "hospital", "administrator", "auditor", "agent", "offline_access"},
+              sorted(roles))
+
+        status, headers, _ = request(auth_url(challenge).replace(urllib.parse.quote(REDIRECT, safe=""),
+                                     urllib.parse.quote(WEB + "/evil", safe="")), opener=no_follow)
+        check("unregistered redirect_uri is refused", status == 400 or "evil" not in headers.get("Location", ""))
 
         status, _, _ = request(f"{KC}/realms/{REALM}/protocol/openid-connect/token", {
             "grant_type": "password", "client_id": CLIENT, "username": email, "password": password})
@@ -203,6 +219,16 @@ def pkce_login_checks(token):
 
 def registration_checks(token):
     email = f"signup-{secrets.token_hex(4)}@example.test"
+    try:
+        _registration_checks(token, email)
+    finally:
+        _, _, users = admin(f"/users?email={urllib.parse.quote(email)}&exact=true", token)
+        for u in users if isinstance(users, list) else []:
+            admin(f"/users/{u['id']}", token, "DELETE")
+        request(f"{MAILPIT}/api/v1/search?query=" + urllib.parse.quote(f"to:{email}"), method="DELETE")
+
+
+def _registration_checks(token, email):
     password = "Prueba-" + secrets.token_hex(6)
     follow, _ = browser()
     _, challenge = pkce_pair()
@@ -214,13 +240,21 @@ def registration_checks(token):
     _, _, form = request(urllib.parse.urljoin(KC, html.unescape(m.group(1))), opener=follow)
     check("registration form asks for the privacy consent", "privacy_consent" in form)
 
-    fields = {"email": email, "firstName": "Luis", "lastName": "Prueba", "password": password,
-              "password-confirm": password}
-    _, _, page = request(form_action(form), fields, opener=follow)
+    action = form_action(form)
+    check("registration form has an action", action is not None)
+    if not action:
+        return
+    # Names are optional (data minimization): HU-01 asks for email, password and consent only.
+    fields = {"email": email, "password": password, "password-confirm": password}
+    _, _, page = request(action, fields, opener=follow)
     check("registration without consent is refused", "privacy_consent" in page and "verify" not in page.lower()
           and "verific" not in page.lower(), page[:120])
 
-    _, _, page = request(form_action(page), dict(fields, privacy_consent="accepted"), opener=follow)
+    action = form_action(page)
+    if not action:
+        check("registration form shown again after the refusal", False)
+        return
+    _, _, page = request(action, dict(fields, privacy_consent="accepted"), opener=follow)
     check("registration with consent succeeds and asks to verify the email",
           "verif" in page.lower(), page[:160])
 
@@ -239,7 +273,6 @@ def registration_checks(token):
         check("registered user stored the consent", (u.get("attributes") or {}).get("privacy_consent") == ["accepted"])
         _, _, roles = admin(f"/users/{u['id']}/role-mappings/realm/composite", token)
         check("registered user is a donor", "donor" in {r["name"] for r in roles})
-        admin(f"/users/{u['id']}", token, "DELETE")
 
 
 if __name__ == "__main__":

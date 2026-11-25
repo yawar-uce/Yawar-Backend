@@ -75,7 +75,7 @@ roles:
       description: Roles of every new user
       composite: true
       composites:
-        realm: [donor, offline_access, uma_authorization]
+        realm: [donor, uma_authorization]   # no offline_access: no long-lived tokens in the browser
         client:
           account: [view-profile, manage-account]
 
@@ -95,15 +95,17 @@ clients:
     fullScopeAllowed: false
     rootUrl: "$(env:KC_WEB_URL:-http://localhost:5173)"
     baseUrl: /
+    # Exact URIs (the web app, gateway and Keycloak share the QA host): login callback and silent SSO check.
     redirectUris:
-      - "$(env:KC_WEB_URL:-http://localhost:5173)/*"
+      - "$(env:KC_WEB_URL:-http://localhost:5173)/callback"
+      - "$(env:KC_WEB_URL:-http://localhost:5173)/silent-check-sso.html"
     webOrigins:
       - "$(env:KC_WEB_URL:-http://localhost:5173)"
     attributes:
       pkce.code.challenge.method: S256
-      post.logout.redirect.uris: "$(env:KC_WEB_URL:-http://localhost:5173)/*"
+      post.logout.redirect.uris: "$(env:KC_WEB_URL:-http://localhost:5173)/"
     defaultClientScopes: [web-origins, acr, profile, roles, basic, email]
-    optionalClientScopes: [offline_access]
+    optionalClientScopes: []
     protocolMappers:
       # Tokens carry the API audience so the API Gateway can reject tokens issued for other clients.
       - name: yawar-api-audience
@@ -113,6 +115,19 @@ clients:
           included.custom.audience: yawar-api
           access.token.claim: "true"
           id.token.claim: "false"
+      # ms-donors records the consent (purpose, policy version, timestamp) when it first sees this claim on
+      # GET /donors/me; it is the system of record for consents and revocations (no call to Keycloak, C-02).
+      - name: privacy-consent
+        protocol: openid-connect
+        protocolMapper: oidc-usermodel-attribute-mapper
+        config:
+          user.attribute: privacy_consent
+          claim.name: privacy_consent
+          jsonType.label: String
+          multivalued: "true"
+          access.token.claim: "true"
+          id.token.claim: "false"
+          userinfo.token.claim: "false"
 
 scopeMappings:
   - client: yawar-web
@@ -155,11 +170,9 @@ components:
                  "permissions": {"view": ["admin", "user"], "edit": ["admin", "user"]}, "multivalued": false},
                 {"name": "firstName", "displayName": "${firstName}",
                  "validations": {"length": {"max": 255}, "person-name-prohibited-characters": {}},
-                 "required": {"roles": ["user"]},
                  "permissions": {"view": ["admin", "user"], "edit": ["admin", "user"]}, "multivalued": false},
                 {"name": "lastName", "displayName": "${lastName}",
                  "validations": {"length": {"max": 255}, "person-name-prohibited-characters": {}},
-                 "required": {"roles": ["user"]},
                  "permissions": {"view": ["admin", "user"], "edit": ["admin", "user"]}, "multivalued": false},
                 {"name": "privacy_consent", "displayName": "${privacyConsent}",
                  "validations": {"options": {"options": ["accepted"]}},
