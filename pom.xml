@@ -18,8 +18,8 @@
     <description>Aggregator of the Yawar backend modules (one top-level folder per microservice).</description>
 
     <modules>
+        <module>yawar-platform</module>
         <!-- Added by the tasks that create them:
-        <module>yawar-platform</module>      YAW-12
         <module>config-server</module>       YAW-216
         <module>discovery-service</module>   YAW-217
         <module>api-gateway</module>         YAW-33
