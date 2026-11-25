@@ -1,0 +1,35 @@
+# Values of the shared chart yawar-service for ms-donors (YAW-36). The chart arrives with YAW-13.
+# Sizes from deployment.md §12.4: requests 512Mi / limit 768Mi; lab profile 1 replica, 100m CPU.
+nameOverride: ms-donors
+image:
+  repository: yawar/ms-donors          # ECR repository (Terraform, immutable tags, scan on push, keep 20)
+replicaCount: 1
+containerPort: 8081
+service:
+  port: 8081                           # ClusterIP; reached only through the API Gateway (/api/v1/donors/**)
+probes:
+  liveness: /health/live
+  readiness: /health/ready             # includes PostgreSQL and RabbitMQ
+env:
+  CONFIG_IMPORT: configserver:http://config-server:8888/config   # required in Kubernetes
+  CONFIG_FAIL_FAST: "true"             # fallback: a pod without configuration does not start (it is restarted)
+  RABBITMQ_HOST: rabbitmq
+  EUREKA_HOST: discovery-service
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+  SWAGGER_UI_ENABLED: "false"          # the OpenAPI JSON stays at /v3/api-docs
+  LOGGING_STRUCTURED_FORMAT_CONSOLE: ecs
+# Kubernetes Secret ms-donors-secrets: DONORS_DB_URL, DONORS_DB_USER, DONORS_DB_PASSWORD, RABBITMQ_USER,
+# RABBITMQ_PASSWORD, RABBITMQ_VHOST, CONFIG_SERVER_USER, CONFIG_SERVER_PASSWORD, EUREKA_USER, EUREKA_PASSWORD,
+# KEYCLOAK_ISSUER_URI, KEYCLOAK_JWK_SET_URI (per environment, never committed).
+envFromSecret: ms-donors-secrets
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  readOnlyRootFilesystem: true
+tmpVolume: /tmp
+resources:
+  requests:
+    cpu: 100m
+    memory: 512Mi
+  limits:
+    memory: 768Mi
