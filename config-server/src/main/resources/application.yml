@@ -12,16 +12,14 @@ spring:
   threads:
     virtual:
       enabled: true
-  security:
-    user:
-      name: ${CONFIG_SERVER_USER}
-      password: ${CONFIG_SERVER_PASSWORD}
+  # Users come from CONFIG_SERVER_USER/PASSWORD (read config) and CONFIG_ADMIN_USER/PASSWORD (bus refresh);
+  # see SecurityConfig. No defaults: a missing value stops the startup.
   rabbitmq:
     host: ${RABBITMQ_HOST:localhost}
     port: ${RABBITMQ_PORT:5672}
     username: ${RABBITMQ_USER}
     password: ${RABBITMQ_PASSWORD}
-    virtual-host: ${RABBITMQ_VHOST:yawar-dev}
+    virtual-host: ${RABBITMQ_VHOST}   # no default: yawar-dev, yawar-qa, yawar-production per environment
   cloud:
     bus:
       enabled: true
@@ -53,8 +51,12 @@ management:
     health:
       probes:
         enabled: true
+      show-details: when-authorized   # full /health with components for the admin user only
+      roles: CONFIG_ADMIN
       group:
         live:
           include: livenessState
         ready:
-          include: readinessState,rabbit
+          # Serving config does not need RabbitMQ (only /busrefresh does): a broker outage must not stop
+          # new pods from importing their configuration. Rabbit stays visible in the full /health.
+          include: readinessState

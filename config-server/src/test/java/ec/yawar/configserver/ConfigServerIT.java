@@ -41,10 +41,18 @@ class ConfigServerIT {
     @Autowired RabbitTemplate rabbit;
 
     private RestClient client(boolean authenticated) {
+        return authenticated ? client("it-config", "it-secret") : client(null, null);
+    }
+
+    private RestClient admin() {
+        return client("it-admin", "it-admin-secret");
+    }
+
+    private RestClient client(String user, String password) {
         RestClient.Builder builder = RestClient.builder().baseUrl("http://localhost:" + port)
                 .defaultStatusHandler(HttpStatusCode::isError, (req, res) -> { });
-        if (authenticated) {
-            builder.defaultHeaders(h -> h.setBasicAuth("it-config", "it-secret"));
+        if (user != null) {
+            builder.defaultHeaders(h -> h.setBasicAuth(user, password));
         }
         return builder.build();
     }
@@ -86,7 +94,7 @@ class ConfigServerIT {
         admin.declareQueue(queue);
         admin.declareBinding(BindingBuilder.bind(queue).to(new TopicExchange("springCloudBus")).with("#"));
 
-        ResponseEntity<Void> res = client(true).post().uri("/busrefresh").retrieve().toBodilessEntity();
+        ResponseEntity<Void> res = admin().post().uri("/busrefresh").retrieve().toBodilessEntity();
 
         assertThat(res.getStatusCode().value()).isEqualTo(204);
         Message message = await().atMost(Duration.ofSeconds(10)).until(() -> rabbit.receive(queue.getName()), m -> m != null);
@@ -94,8 +102,20 @@ class ConfigServerIT {
     }
 
     @Test
-    void busRefreshRequiresCredentials() {
+    void busRefreshRequiresTheAdminUser() {
         assertThat(client(false).post().uri("/busrefresh").retrieve().toBodilessEntity()
                 .getStatusCode().value()).isEqualTo(401);
+        // The client credentials every service holds can read config but not refresh the whole fleet.
+        assertThat(client(true).post().uri("/busrefresh").retrieve().toBodilessEntity()
+                .getStatusCode().value()).isEqualTo(403);
+    }
+
+    @Test
+    void adminCanAlsoReadConfigAndFullHealth() {
+        assertThat(admin().get().uri("/config/ms-donors/dev").retrieve().toBodilessEntity()
+                .getStatusCode().value()).isEqualTo(200);
+        assertThat(admin().get().uri("/health").retrieve().toEntity(String.class).getBody()).contains("rabbit");
+        assertThat(client(true).get().uri("/health").retrieve().toBodilessEntity()
+                .getStatusCode().value()).isEqualTo(403);
     }
 }

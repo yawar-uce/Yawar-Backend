@@ -159,8 +159,10 @@ services:
     restart: unless-stopped
     environment:
       CONFIG_SERVER_PROFILES: ${CONFIG_SERVER_PROFILES:-native}
-      CONFIG_SERVER_USER: ${CONFIG_SERVER_USER}
-      CONFIG_SERVER_PASSWORD: ${CONFIG_SERVER_PASSWORD}
+      CONFIG_SERVER_USER: ${CONFIG_SERVER_USER:?set CONFIG_SERVER_USER in deploy/local/.env (see .env.example)}
+      CONFIG_SERVER_PASSWORD: ${CONFIG_SERVER_PASSWORD:?set CONFIG_SERVER_PASSWORD in deploy/local/.env}
+      CONFIG_ADMIN_USER: ${CONFIG_ADMIN_USER:?set CONFIG_ADMIN_USER in deploy/local/.env}
+      CONFIG_ADMIN_PASSWORD: ${CONFIG_ADMIN_PASSWORD:?set CONFIG_ADMIN_PASSWORD in deploy/local/.env}
       CONFIG_NATIVE_DIR: file:/config-repo
       CONFIG_GIT_URI: ${CONFIG_GIT_URI:-https://github.com/yawar-uce/yawar-config.git}
       CONFIG_GIT_USERNAME: ${CONFIG_GIT_USERNAME:-x-access-token}

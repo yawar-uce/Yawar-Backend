@@ -61,7 +61,7 @@ Shared infrastructure for development, defined in [deploy/local/docker-compose.y
 
 ### Start
 ```bash
-make up        # first run copies deploy/local/.env.example to deploy/local/.env
+make up        # first run copies deploy/local/.env.example to deploy/local/.env (images of modules are rebuilt)
 make ps        # every service must show "(healthy)"
 ```
 `make up` waits until every container is healthy (timeout 5 min; the first run pulls the images).
@@ -74,7 +74,7 @@ Local credentials live in `deploy/local/.env` (git-ignored). Edit that file, nev
 | Keycloak | http://localhost:8080 (admin console at `/admin`), realm `yawar-dev` applied from [deploy/keycloak](deploy/keycloak/README.md) | `KEYCLOAK_ADMIN_USER` / `KEYCLOAK_ADMIN_PASSWORD` |
 | RabbitMQ 4.2 | AMQP `localhost:5672`, UI http://localhost:15672 — vhosts `yawar-dev`, `yawar-qa` | `RABBITMQ_USER` / `RABBITMQ_PASSWORD` |
 | Mailpit | SMTP `localhost:1025`, UI http://localhost:8025 | none (accepts any SMTP auth) |
-| Config Server (`PROFILE=platform`) | http://localhost:8888/config/ms-donors/dev · `POST /busrefresh` | `CONFIG_SERVER_USER` / `CONFIG_SERVER_PASSWORD` |
+| Config Server (`PROFILE=platform`) | http://localhost:8888/config/ms-donors/dev · `POST /busrefresh` | read: `CONFIG_SERVER_USER` / `CONFIG_SERVER_PASSWORD` · refresh: `CONFIG_ADMIN_USER` / `CONFIG_ADMIN_PASSWORD` |
 | Grafana otel-lgtm | Grafana http://localhost:3000 (traces in Tempo, logs in Loki, metrics in Prometheus); OTLP gRPC `localhost:4317`, HTTP `localhost:4318` | none (anonymous admin, bound to 127.0.0.1) |
 
 ### Everyday commands

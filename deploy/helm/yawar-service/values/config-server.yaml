@@ -14,10 +14,16 @@ env:
   CONFIG_GIT_URI: https://github.com/yawar-uce/yawar-config.git
   CONFIG_GIT_LABEL: main
   RABBITMQ_HOST: rabbitmq
+  # RABBITMQ_VHOST has no default on purpose: set in config-server-qa.yaml / config-server-production.yaml
   LOGGING_STRUCTURED_FORMAT_CONSOLE: ecs
-# Kubernetes Secret config-server-secrets: CONFIG_SERVER_USER, CONFIG_SERVER_PASSWORD, CONFIG_GIT_TOKEN,
-# RABBITMQ_USER, RABBITMQ_PASSWORD (created per environment, never committed).
+# Kubernetes Secret config-server-secrets: CONFIG_SERVER_USER, CONFIG_SERVER_PASSWORD, CONFIG_ADMIN_USER,
+# CONFIG_ADMIN_PASSWORD, CONFIG_GIT_TOKEN, RABBITMQ_USER, RABBITMQ_PASSWORD (per environment, never committed).
 envFromSecret: config-server-secrets
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  readOnlyRootFilesystem: true
+tmpVolume: /tmp                       # emptyDir: the git backend clones the config repo here
 resources:
   requests:
     cpu: 100m

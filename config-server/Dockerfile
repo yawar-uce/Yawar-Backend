@@ -9,13 +9,15 @@ RUN ./mvnw -B -ntp -q package -DskipTests -Djacoco.skip=true \
  && java -Djarmode=tools -jar target/config-server-*.jar extract --layers --launcher --destination /extracted
 
 FROM eclipse-temurin:21.0.13_9-jre-alpine
-RUN addgroup -S yawar && adduser -S yawar -G yawar
+# The git clone goes to /tmp (emptyDir if read-only root).
+# Patched OS packages (Trivy V-03), then a numeric UID so Kubernetes runAsNonRoot can verify it.
+RUN apk upgrade --no-cache && addgroup -S -g 10001 yawar && adduser -S -u 10001 -G yawar yawar
 WORKDIR /app
 COPY --from=build /extracted/dependencies/ ./
 COPY --from=build /extracted/spring-boot-loader/ ./
 COPY --from=build /extracted/snapshot-dependencies/ ./
 COPY --from=build /extracted/application/ ./
-USER yawar
+USER 10001:10001
 EXPOSE 8888
 ENV LOGGING_STRUCTURED_FORMAT_CONSOLE=ecs
 HEALTHCHECK --interval=10s --timeout=3s --start-period=40s --retries=10 \
