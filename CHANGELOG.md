@@ -13,3 +13,4 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions per m
 
 ### Changed
 - Local RabbitMQ upgraded from 3.13 to 4.2 (`rabbitmq:4.2.9-management-alpine`); run `make reset` once to drop the old 3.13 data volume (YAW-11).
+- Local vhosts `yawar-dev` and `yawar-qa` default to quorum queues (YAW-11).
