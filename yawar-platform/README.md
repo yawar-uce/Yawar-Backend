@@ -18,7 +18,8 @@ present switch on.
 ```yaml
 spring:
   rabbitmq:
-    publisher-confirm-type: correlated   # required: the relay refuses to start without confirms
+    publisher-confirm-type: correlated   # required: the relay refuses to start without confirms…
+    publisher-returns: true              # …and returns (unroutable commands are retried, not lost)
   flyway:
     locations: classpath:db/yawar-platform,classpath:db/migration   # outbox + inbox tables (V0_1)
 ```
@@ -53,8 +54,14 @@ public DonorId register(RegisterDonor cmd) {
 
 The relay locks a batch with `FOR UPDATE SKIP LOCKED` (safe with several replicas), publishes each row with
 the Yawar envelope, `traceparent` and `x-correlation-id` headers, and marks it published only after the
-broker's confirm. Failures are retried with backoff (1 s … 60 s); rows are never dropped. Delivery is at
-least once.
+broker's confirm. Publishes are `mandatory`: a **command** that no queue receives is retried; an **event**
+without subscribers is logged and counted as sent (history is replayable from Kafka). Failures, including a
+row that cannot be serialized, are retried with backoff (1 s … 60 s) without blocking the rows behind them;
+rows are never dropped. Delivery is at least once and **not ordered** across replicas and retries:
+projections store the last `aggregateVersion` and ignore older ones.
+
+An event appended inside `BaseConsumer.handle()` automatically gets `causationId` = the handled event id and
+keeps its correlation id and traceparent.
 
 ## Consuming (inbox + BaseConsumer)
 
@@ -82,8 +89,15 @@ class DonorEventsConsumer extends BaseConsumer {
 `BaseConsumer` (Template Method): extract the trace → open a transaction → insert `(eventId, consumer)`
 into `inbox` → `handle()` → commit → ack. A duplicate is acknowledged without calling `handle()`. A failure
 rolls back and goes through `<queue>.retry`; the 5th failed delivery, an invalid envelope or a
-`NonRetryableMessageException` goes to `<queue>.dlq` with the `x-yawar-error` and `x-yawar-attempts` headers.
-Every `BaseConsumer` bean is registered automatically (prefetch from `spring.rabbitmq.listener.simple.prefetch`).
+`NonRetryableMessageException` goes to `<queue>.dlq` with the `x-yawar-error` (exception classes and SQLState
+only, never message text: LOPDP) and `x-yawar-attempts` headers. The DLQ publish is confirmed; if the broker
+does not confirm it, the message takes the retry path instead of being acknowledged. Queues use quorum
+dead-lettering `at-least-once`. Every `BaseConsumer` bean is registered automatically (set
+`spring.rabbitmq.listener.simple.prefetch` between 10 and 50; yawar-config uses 20).
+
+**Reprocessing a DLQ message:** fix the cause, then move it back to `<queue>` without its `x-death` header
+(otherwise it counts as already failed 4 times). The inbox remembers event ids for 30 days
+(`yawar.platform.inbox.retention`): older messages are not deduplicated.
 
 ## Correlation and tracing
 
@@ -105,8 +119,11 @@ Forecast f = calls.callIdempotent("ai-provider", () -> ai.forecast(q), e -> Fore
 
 `ExternalCallExecutor` applies, per dependency name: timeout (2 s, or less if the request's `X-Deadline-Ms`
 budget is shorter), bulkhead, circuit breaker (opens at 50 % failures over 20 calls, half-open after 30 s)
-and, for idempotent calls only, retry 200/400/800 ms ± 20 %. A fallback is mandatory (YAW-DOC-07 §9.5).
-Override any instance with the usual `resilience4j.*.instances.<dependency>` properties.
+and, for idempotent calls only, retry 200/400/800 ms ± 20 %. A fallback is mandatory (YAW-DOC-07 §9.5); it
+also receives timeouts, after which the remote side may still have done the work, so the fallback of a
+non-idempotent call must tolerate a duplicate. The call runs on a virtual thread with the caller's MDC,
+current span and deadline. To tune an instance with `resilience4j.*.instances.<dependency>` properties, add
+`resilience4j-spring-boot4` to the service: its registries are then used instead of the defaults.
 `DeadlineFilter` reads `X-Deadline-Ms` (remaining budget in milliseconds) for each request.
 
 ## Build and test

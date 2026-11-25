@@ -22,6 +22,8 @@ import org.springframework.amqp.core.TopicExchange;
  *   <li>{@code <queue>.retry} quorum queue with a TTL (30 s by default) dead-lettering back to {@code <queue>}</li>
  *   <li>{@code <queue>.dlq} quorum queue for manual review and reprocessing</li>
  * </ul>
+ * Dead-lettering between them uses the quorum {@code at-least-once} strategy (with {@code reject-publish}
+ * overflow, which it requires), so a message is not lost if the target queue is briefly unavailable.
  * Expose the result as a {@code @Bean}; Spring AMQP declares it on startup.
  */
 public final class ConsumerTopology {
@@ -64,11 +66,15 @@ public final class ConsumerTopology {
         Queue main = QueueBuilder.durable(queue).quorum()
                 .deadLetterExchange("")
                 .deadLetterRoutingKey(retry(queue))
+                .overflow(QueueBuilder.Overflow.rejectPublish)
+                .withArgument("x-dead-letter-strategy", "at-least-once")
                 .build();
         Queue retry = QueueBuilder.durable(retry(queue)).quorum()
                 .ttl(Math.toIntExact(retryDelay.toMillis()))
                 .deadLetterExchange("")
                 .deadLetterRoutingKey(queue)
+                .overflow(QueueBuilder.Overflow.rejectPublish)
+                .withArgument("x-dead-letter-strategy", "at-least-once")
                 .build();
         Queue dlq = QueueBuilder.durable(dlq(queue)).quorum().build();
 

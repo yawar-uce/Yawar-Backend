@@ -18,6 +18,9 @@ public final class Correlation {
     /** MDC key used by the JSON log layout. */
     public static final String MDC_CORRELATION_ID = "correlationId";
 
+    /** MDC key with the id of the message being handled; becomes the causationId of what it publishes. */
+    public static final String MDC_CAUSATION_ID = "causationId";
+
     /** MDC key for the traceparent when no tracer is present. */
     public static final String MDC_TRACEPARENT = "traceparent";
 

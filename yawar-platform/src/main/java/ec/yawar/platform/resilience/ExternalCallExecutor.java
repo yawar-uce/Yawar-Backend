@@ -12,6 +12,7 @@ import io.github.resilience4j.core.IntervalFunction;
 import io.github.resilience4j.retry.Retry;
 import io.github.resilience4j.retry.RetryConfig;
 import io.github.resilience4j.retry.RetryRegistry;
+import ec.yawar.platform.tracing.TraceContextProvider;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.Objects;
@@ -30,6 +31,9 @@ import java.util.function.Supplier;
  * the mechanisms of YAW-DOC-07 §9.4: timeout bounded by the request {@link Deadline}, bulkhead, circuit
  * breaker, retry with exponential backoff and jitter for idempotent calls only, and a mandatory fallback
  * (§9.5). It is not a way to call other Yawar services: those integrate through RabbitMQ (C-02).
+ *
+ * <p>The fallback receives every failure, including a timeout after which the remote side may still have
+ * done the work (a message sent late): fallbacks of non-idempotent calls must tolerate that duplicate.
  *
  * <p>Instances are per dependency name; configure them with the usual {@code resilience4j.*} properties
  * (instance name = dependency). Without configuration the documented defaults apply: timeout 2 s, retry
@@ -63,15 +67,18 @@ public class ExternalCallExecutor implements AutoCloseable {
     private final BulkheadRegistry bulkheads;
     private final Duration defaultTimeout;
     private final Clock clock;
+    private final TraceContextProvider traceContextProvider;
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
 
     public ExternalCallExecutor(CircuitBreakerRegistry circuitBreakers, RetryRegistry retries,
-                                BulkheadRegistry bulkheads, Duration defaultTimeout, Clock clock) {
+                                BulkheadRegistry bulkheads, Duration defaultTimeout, Clock clock,
+                                TraceContextProvider traceContextProvider) {
         this.circuitBreakers = circuitBreakers;
         this.retries = retries;
         this.bulkheads = bulkheads;
         this.defaultTimeout = defaultTimeout;
         this.clock = clock;
+        this.traceContextProvider = traceContextProvider;
     }
 
     /** Non-idempotent call (e.g. sending a message): never retried, only timeout + bulkhead + breaker. */
@@ -114,7 +121,17 @@ public class ExternalCallExecutor implements AutoCloseable {
             }
             timeout = remaining.compareTo(timeout) < 0 ? remaining : timeout;
         }
-        Future<T> future = executor.submit(call::get);
+        // The call runs on its own virtual thread: carry the MDC, the current span and the deadline along, so
+        // the adapter's logs and outgoing traceparent belong to the request.
+        Deadline bound = deadline.orElse(null);
+        Future<T> future = executor.submit(traceContextProvider.propagate(() -> {
+            if (bound == null) {
+                return call.get();
+            }
+            try (Deadline.Scope ignored = Deadline.bind(bound)) {
+                return call.get();
+            }
+        }));
         try {
             return future.get(timeout.toMillis(), TimeUnit.MILLISECONDS);
         } catch (TimeoutException e) {

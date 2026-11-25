@@ -21,6 +21,7 @@ public class PlatformScheduler implements SmartLifecycle {
     private final Duration pollInterval;
     private final Duration purgeInterval;
     private ScheduledExecutorService executor;
+    private volatile boolean running;
 
     /** {@code relay} or {@code housekeeping} may be {@code null} when disabled. */
     public PlatformScheduler(OutboxRelay relay, Housekeeping housekeeping, Duration pollInterval,
@@ -36,9 +37,12 @@ public class PlatformScheduler implements SmartLifecycle {
         if (executor != null) {
             return;
         }
+        if (relay != null) {
+            relay.verifyPublisherConfirms();   // before creating the thread: nothing leaks if it fails
+        }
+        running = true;
         executor = Executors.newSingleThreadScheduledExecutor(Thread.ofPlatform().name("yawar-outbox").daemon().factory());
         if (relay != null) {
-            relay.verifyPublisherConfirms();
             executor.scheduleWithFixedDelay(this::relay, pollInterval.toMillis(), pollInterval.toMillis(),
                     TimeUnit.MILLISECONDS);
         }
@@ -54,7 +58,7 @@ public class PlatformScheduler implements SmartLifecycle {
             int published;
             do {
                 published = relay.relayOnce();
-            } while (published > 0 && !Thread.currentThread().isInterrupted());
+            } while (published > 0 && running && !Thread.currentThread().isInterrupted());
         } catch (RuntimeException e) {
             log.error("Outbox relay run failed", e);
         }
@@ -71,6 +75,7 @@ public class PlatformScheduler implements SmartLifecycle {
 
     @Override
     public synchronized void stop() {
+        running = false;
         if (executor != null) {
             executor.shutdown();
             try {

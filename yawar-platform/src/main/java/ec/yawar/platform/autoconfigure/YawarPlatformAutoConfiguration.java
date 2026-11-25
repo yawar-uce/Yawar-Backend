@@ -13,6 +13,7 @@ import ec.yawar.platform.outbox.OutboxRelay;
 import ec.yawar.platform.outbox.PlatformScheduler;
 import ec.yawar.platform.resilience.DeadlineFilter;
 import ec.yawar.platform.resilience.ExternalCallExecutor;
+import ec.yawar.platform.support.PublisherConfirms;
 import ec.yawar.platform.tracing.CorrelationIdFilter;
 import ec.yawar.platform.tracing.MdcTraceContextProvider;
 import ec.yawar.platform.tracing.MicrometerTraceContextProvider;
@@ -107,8 +108,10 @@ public class YawarPlatformAutoConfiguration {
 
         @Bean
         @ConditionalOnMissingBean
-        Housekeeping yawarHousekeeping(JdbcClient jdbc, YawarPlatformProperties properties) {
-            return new Housekeeping(jdbc, properties.outbox().retention(), properties.inbox().retention());
+        Housekeeping yawarHousekeeping(JdbcClient jdbc, PlatformTransactionManager transactionManager,
+                                       YawarPlatformProperties properties) {
+            return new Housekeeping(jdbc, new TransactionTemplate(transactionManager),
+                    properties.outbox().retention(), properties.inbox().retention());
         }
     }
 
@@ -122,6 +125,11 @@ public class YawarPlatformAutoConfiguration {
             return new Declarables(ConsumerTopology.events(), ConsumerTopology.commands());
         }
 
+        /** Separate from the service's RabbitTemplate: mandatory publishes, so unroutable messages come back. */
+        private static RabbitTemplate platformTemplate(RabbitTemplate serviceTemplate) {
+            return PublisherConfirms.mandatoryTemplate(serviceTemplate.getConnectionFactory());
+        }
+
         @Bean
         @ConditionalOnMissingBean
         @ConditionalOnProperty(prefix = "yawar.platform.outbox", name = "relay-enabled", matchIfMissing = true)
@@ -129,7 +137,7 @@ public class YawarPlatformAutoConfiguration {
                                      RabbitTemplate rabbitTemplate, EnvelopeCodec codec,
                                      YawarPlatformProperties properties, Environment environment) {
             YawarPlatformProperties.Outbox outbox = properties.outbox();
-            return new OutboxRelay(jdbc, new TransactionTemplate(transactionManager), rabbitTemplate, codec,
+            return new OutboxRelay(jdbc, new TransactionTemplate(transactionManager), platformTemplate(rabbitTemplate), codec,
                     environment.getProperty("spring.application.name", "unknown-service"),
                     outbox.batchSize(), outbox.confirmTimeout());
         }
@@ -148,7 +156,8 @@ public class YawarPlatformAutoConfiguration {
                                              EnvelopeCodec codec, TraceContextProvider traceContextProvider,
                                              RabbitTemplate rabbitTemplate, YawarPlatformProperties properties) {
             return new ConsumerSupport(inbox, new TransactionTemplate(transactionManager), codec,
-                    traceContextProvider, rabbitTemplate, properties.consumer().maxAttempts());
+                    traceContextProvider, platformTemplate(rabbitTemplate), properties.consumer().maxAttempts(),
+                    properties.outbox().confirmTimeout());
         }
 
         @Bean
@@ -188,13 +197,15 @@ public class YawarPlatformAutoConfiguration {
                                                        ObjectProvider<RetryRegistry> retries,
                                                        ObjectProvider<BulkheadRegistry> bulkheads,
                                                        ObjectProvider<Clock> clock,
+                                                       TraceContextProvider traceContextProvider,
                                                        YawarPlatformProperties properties) {
             return new ExternalCallExecutor(
                     circuitBreakers.getIfAvailable(CircuitBreakerRegistry::ofDefaults),
                     retries.getIfAvailable(RetryRegistry::ofDefaults),
                     bulkheads.getIfAvailable(BulkheadRegistry::ofDefaults),
                     properties.resilience().timeout(),
-                    clock.getIfAvailable(Clock::systemUTC));
+                    clock.getIfAvailable(Clock::systemUTC),
+                    traceContextProvider);
         }
     }
 }

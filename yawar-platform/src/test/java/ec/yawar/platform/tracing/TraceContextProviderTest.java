@@ -57,6 +57,50 @@ class TraceContextProviderTest {
     }
 
     @Test
+    void currentInsideAConsumerScopeCarriesTheCausation() {
+        MdcTraceContextProvider provider = new MdcTraceContextProvider();
+
+        try (TraceContextProvider.Scope ignored = provider.open(new TraceContext(null, "c-1", "evt-9"), "consume q")) {
+            assertThat(provider.current()).isEqualTo(new TraceContext(null, "c-1", "evt-9"));
+        }
+        assertThat(provider.current().causationId()).isNull();
+    }
+
+    @Test
+    void propagateCopiesMdcToAnotherThreadAndRestoresIt() throws Exception {
+        MDC.put(Correlation.MDC_CORRELATION_ID, "req-7");
+        java.util.concurrent.Callable<String> task = new MdcTraceContextProvider()
+                .propagate(() -> MDC.get(Correlation.MDC_CORRELATION_ID));
+
+        try (var pool = java.util.concurrent.Executors.newSingleThreadExecutor()) {
+            pool.submit(() -> MDC.put(Correlation.MDC_CORRELATION_ID, "stale")).get();
+            assertThat(pool.submit(task).get()).isEqualTo("req-7");
+            assertThat(pool.submit(() -> MDC.get(Correlation.MDC_CORRELATION_ID)).get()).isEqualTo("stale");
+        }
+    }
+
+    @Test
+    void micrometerPropagateRunsTaskInTheCallersSpan() throws Exception {
+        Tracer tracer = mock(Tracer.class);
+        Span span = mock(Span.class);
+        Tracer.SpanInScope inScope = mock(Tracer.SpanInScope.class);
+        when(tracer.currentSpan()).thenReturn(span);
+        when(tracer.withSpan(span)).thenReturn(inScope);
+
+        String result = new MicrometerTraceContextProvider(tracer, mock(Propagator.class)).propagate(() -> "ok").call();
+
+        assertThat(result).isEqualTo("ok");
+        verify(tracer).withSpan(span);
+        verify(inScope).close();
+    }
+
+    @Test
+    void micrometerPropagateWithoutSpanOnlyCopiesMdc() throws Exception {
+        assertThat(new MicrometerTraceContextProvider(mock(Tracer.class), mock(Propagator.class))
+                .propagate(() -> 1).call()).isEqualTo(1);
+    }
+
+    @Test
     void micrometerProviderBuildsTraceparentFromCurrentSpan() {
         Tracer tracer = mock(Tracer.class);
         Span span = mock(Span.class);

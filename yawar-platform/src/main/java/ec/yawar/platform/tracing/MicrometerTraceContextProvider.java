@@ -5,6 +5,7 @@ import io.micrometer.tracing.TraceContext;
 import io.micrometer.tracing.Tracer;
 import io.micrometer.tracing.propagation.Propagator;
 import java.util.Map;
+import java.util.concurrent.Callable;
 
 /**
  * Uses Micrometer Tracing (OpenTelemetry bridge in the services): the producer side reads the current span,
@@ -32,6 +33,20 @@ public class MicrometerTraceContextProvider extends MdcTraceContextProvider {
     static String traceparent(TraceContext context) {
         boolean sampled = Boolean.TRUE.equals(context.sampled());
         return "00-" + context.traceId() + "-" + context.spanId() + (sampled ? "-01" : "-00");
+    }
+
+    @Override
+    public <T> Callable<T> propagate(Callable<T> task) {
+        Span span = tracer.currentSpan();
+        Callable<T> withMdc = super.propagate(task);
+        if (span == null) {
+            return withMdc;
+        }
+        return () -> {
+            try (Tracer.SpanInScope ignored = tracer.withSpan(span)) {
+                return withMdc.call();
+            }
+        };
     }
 
     @Override

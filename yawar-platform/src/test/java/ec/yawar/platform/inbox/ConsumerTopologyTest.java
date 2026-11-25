@@ -32,7 +32,10 @@ class ConsumerTopologyTest {
         Map<String, Object> main = queues.get(0).getArguments();
         assertThat(main).containsEntry("x-dead-letter-exchange", "")
                 .containsEntry("x-dead-letter-routing-key", "traceability.events.retry");
+        assertThat(main).containsEntry("x-dead-letter-strategy", "at-least-once")
+                .containsEntry("x-overflow", "reject-publish");
         Map<String, Object> retry = queues.get(1).getArguments();
+        assertThat(retry).containsEntry("x-dead-letter-strategy", "at-least-once");
         assertThat(retry).containsEntry("x-message-ttl", 30_000)
                 .containsEntry("x-dead-letter-routing-key", "traceability.events");
     }

@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -14,6 +15,7 @@ import ec.yawar.platform.envelope.Envelope;
 import ec.yawar.platform.envelope.EnvelopeCodec;
 import ec.yawar.platform.tracing.MdcTraceContextProvider;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -25,6 +27,7 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.amqp.AmqpRejectAndDontRequeueException;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.core.MessageProperties;
+import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionStatus;
@@ -69,7 +72,21 @@ class BaseConsumerTest {
         txManager = mock(PlatformTransactionManager.class);
         when(txManager.getTransaction(any())).thenReturn(mock(TransactionStatus.class));
         consumer = new RecordingConsumer(new ConsumerSupport(inbox, new TransactionTemplate(txManager), codec,
-                new MdcTraceContextProvider(), rabbit, 5));
+                new MdcTraceContextProvider(), rabbit, 5, Duration.ofMillis(200)));
+        brokerConfirms(true);
+    }
+
+    /** The mocked broker acks (or nacks) every confirmed publish. */
+    private void brokerConfirms(boolean ack) {
+        doAnswer(inv -> {
+            CorrelationData cd = inv.getArgument(3);
+            cd.getFuture().complete(new CorrelationData.Confirm(ack, ack ? null : "nack"));
+            return null;
+        }).when(rabbit).send(anyString(), anyString(), any(Message.class), any(CorrelationData.class));
+    }
+
+    private void verifyDlq(ArgumentCaptor<Message> sent) {
+        verify(rabbit).send(eq(""), eq("test.events.dlq"), sent.capture(), any(CorrelationData.class));
     }
 
     private Message message(long previousFailures) {
@@ -101,7 +118,7 @@ class BaseConsumerTest {
         consumer.onMessage(message(0));
 
         assertThat(consumer.handled).isEmpty();
-        verify(rabbit, never()).send(anyString(), anyString(), any(Message.class));
+        verify(rabbit, never()).send(anyString(), anyString(), any(Message.class), any(CorrelationData.class));
     }
 
     @Test
@@ -112,7 +129,7 @@ class BaseConsumerTest {
         assertThatThrownBy(() -> consumer.onMessage(message(2)))
                 .isInstanceOf(AmqpRejectAndDontRequeueException.class);
         verify(txManager).rollback(any());
-        verify(rabbit, never()).send(anyString(), anyString(), any(Message.class));
+        verify(rabbit, never()).send(anyString(), anyString(), any(Message.class), any(CorrelationData.class));
     }
 
     @Test
@@ -123,10 +140,33 @@ class BaseConsumerTest {
         consumer.onMessage(message(4));
 
         ArgumentCaptor<Message> sent = ArgumentCaptor.forClass(Message.class);
-        verify(rabbit).send(eq(""), eq("test.events.dlq"), sent.capture());
+        verifyDlq(sent);
         assertThat(sent.getValue().getMessageProperties().<Long>getHeader(BaseConsumer.HEADER_ATTEMPTS)).isEqualTo(5L);
+        // Only the exception class reaches the header, never its message (LOPDP).
         assertThat(sent.getValue().getMessageProperties().<String>getHeader(BaseConsumer.HEADER_ERROR))
-                .contains("still down");
+                .isEqualTo("java.lang.IllegalStateException")
+                .doesNotContain("still down");
+    }
+
+    @Test
+    void unconfirmedDlqPublishTakesTheRetryPathInsteadOfLosingTheMessage() {
+        when(inbox.markReceived(any(), anyString(), anyString())).thenReturn(true);
+        consumer.failWith = new IllegalStateException("still down");
+        brokerConfirms(false);
+
+        assertThatThrownBy(() -> consumer.onMessage(message(4)))
+                .isInstanceOf(AmqpRejectAndDontRequeueException.class)
+                .hasMessageContaining("DLQ publish failed");
+    }
+
+    @Test
+    void dlqPublishWithoutAnyConfirmTimesOutAndRetries() {
+        when(inbox.markReceived(any(), anyString(), anyString())).thenReturn(true);
+        consumer.failWith = new NonRetryableMessageException("bad");
+        org.mockito.Mockito.reset(rabbit);   // broker never answers
+
+        assertThatThrownBy(() -> consumer.onMessage(message(0)))
+                .isInstanceOf(AmqpRejectAndDontRequeueException.class);
     }
 
     @Test
@@ -136,14 +176,14 @@ class BaseConsumerTest {
 
         consumer.onMessage(message(0));
 
-        verify(rabbit).send(eq(""), eq("test.events.dlq"), any(Message.class));
+        verifyDlq(ArgumentCaptor.forClass(Message.class));
     }
 
     @Test
     void invalidEnvelopeGoesStraightToDlq() {
         consumer.onMessage(new Message("{oops".getBytes(StandardCharsets.UTF_8), new MessageProperties()));
 
-        verify(rabbit).send(eq(""), eq("test.events.dlq"), any(Message.class));
+        verifyDlq(ArgumentCaptor.forClass(Message.class));
         verify(inbox, never()).markReceived(any(), anyString(), anyString());
     }
 
@@ -155,6 +195,6 @@ class BaseConsumerTest {
     @Test
     void supportRejectsZeroAttempts() {
         assertThatThrownBy(() -> new ConsumerSupport(inbox, new TransactionTemplate(txManager), codec,
-                new MdcTraceContextProvider(), rabbit, 0)).isInstanceOf(IllegalArgumentException.class);
+                new MdcTraceContextProvider(), rabbit, 0, Duration.ofSeconds(1))).isInstanceOf(IllegalArgumentException.class);
     }
 }

@@ -2,6 +2,9 @@ package ec.yawar.platform.outbox;
 
 import ec.yawar.platform.envelope.Envelope;
 import ec.yawar.platform.envelope.EnvelopeCodec;
+import ec.yawar.platform.envelope.Exchanges;
+import ec.yawar.platform.support.PublisherConfirms;
+import ec.yawar.platform.support.SafeErrors;
 import ec.yawar.platform.tracing.Correlation;
 import ec.yawar.platform.tracing.TraceContext;
 import java.time.Duration;
@@ -10,12 +13,8 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.amqp.AmqpException;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.core.MessageDeliveryMode;
 import org.springframework.amqp.core.MessageProperties;
@@ -29,16 +28,16 @@ import tools.jackson.databind.ObjectMapper;
  * Publishes pending outbox rows to RabbitMQ.
  *
  * <p>Each run locks a batch with {@code FOR UPDATE SKIP LOCKED}, so several replicas never publish the same
- * row at the same time. A row is marked as published only after the broker confirms it (publisher confirms,
- * {@code spring.rabbitmq.publisher-confirm-type=correlated}). A failed row is retried with exponential
- * backoff (1 s, 2 s, 4 s … up to 60 s) and is never dropped. Delivery is at least once: consumers deduplicate
- * with the inbox.
+ * row at the same time. A row is marked as published only after the broker confirms it (publisher confirms)
+ * and, for commands, routed it to a queue ({@code mandatory}): a command nobody can receive is retried, an
+ * event without subscribers is logged and considered sent. A failed row is retried with exponential backoff
+ * (1 s, 2 s, 4 s … up to 60 s) and never dropped; a row that cannot even be serialized is retried the same way
+ * and never blocks the rows behind it. Delivery is at least once: consumers deduplicate with the inbox.
  */
 public class OutboxRelay {
 
     private static final Logger log = LoggerFactory.getLogger(OutboxRelay.class);
     private static final long MAX_BACKOFF_SECONDS = 60;
-    private static final int MAX_ERROR_LENGTH = 1000;
 
     private static final String SELECT_PENDING = """
             SELECT id, aggregate_id, aggregate_version, event_type, exchange, routing_key, schema_version,
@@ -67,6 +66,10 @@ public class OutboxRelay {
     private final int batchSize;
     private final Duration confirmTimeout;
 
+    /**
+     * @param rabbitTemplate a dedicated template with {@code mandatory=true}
+     *                       ({@link PublisherConfirms#mandatoryTemplate})
+     */
     public OutboxRelay(JdbcClient jdbc, TransactionTemplate transactionTemplate, RabbitTemplate rabbitTemplate,
                        EnvelopeCodec codec, String producer, int batchSize, Duration confirmTimeout) {
         this.jdbc = jdbc;
@@ -78,18 +81,15 @@ public class OutboxRelay {
         this.confirmTimeout = confirmTimeout;
     }
 
-    /** Fails fast when publisher confirms are off: without them a lost message would be marked as sent. */
+    /** Fails fast when confirms or returns are off: without them a lost message would be marked as sent. */
     public void verifyPublisherConfirms() {
-        if (!rabbitTemplate.getConnectionFactory().isPublisherConfirms()) {
-            throw new IllegalStateException(
-                    "yawar-platform outbox relay needs spring.rabbitmq.publisher-confirm-type=correlated");
-        }
+        PublisherConfirms.verify(rabbitTemplate);
     }
 
     /**
      * Publishes one batch.
      *
-     * @return number of rows confirmed by the broker
+     * @return number of rows marked as published
      */
     public int relayOnce() {
         Integer published = transactionTemplate.execute(status -> {
@@ -116,53 +116,46 @@ public class OutboxRelay {
     private int publish(List<PendingRow> rows) {
         List<InFlight> inFlight = new ArrayList<>(rows.size());
         for (PendingRow row : rows) {
-            CorrelationData correlation = new CorrelationData(row.id().toString());
             try {
+                CorrelationData correlation = new CorrelationData(row.id().toString());
                 rabbitTemplate.send(row.exchange(), row.routingKey(), toMessage(row), correlation);
                 inFlight.add(new InFlight(row, correlation));
-            } catch (AmqpException e) {
-                markFailed(row, "send failed: " + e.getMessage());
+            } catch (RuntimeException e) {
+                // Bad row (unreadable payload, invalid envelope) or broker error: retry this row later,
+                // keep publishing the others.
+                markFailed(row, "send failed: " + SafeErrors.describe(e));
             }
         }
 
         long deadline = System.nanoTime() + confirmTimeout.toNanos();
-        List<UUID> confirmed = new ArrayList<>();
+        List<UUID> published = new ArrayList<>();
         for (InFlight f : inFlight) {
-            String failure = awaitConfirm(f.correlation(), deadline);
-            if (failure == null) {
-                confirmed.add(f.row().id());
-            } else {
-                markFailed(f.row(), failure);
+            PublisherConfirms.Result result = PublisherConfirms.await(f.correlation(), deadline);
+            switch (result.outcome()) {
+                case CONFIRMED -> published.add(f.row().id());
+                case UNROUTABLE -> {
+                    if (Exchanges.COMMANDS.equals(f.row().exchange())) {
+                        markFailed(f.row(), result.reason());
+                    } else {
+                        log.warn("Event {} ({}) has no subscriber queue yet; considered published",
+                                f.row().id(), f.row().eventType());
+                        published.add(f.row().id());
+                    }
+                }
+                case FAILED -> markFailed(f.row(), result.reason());
             }
         }
-        if (!confirmed.isEmpty()) {
-            jdbc.sql(MARK_PUBLISHED).param("ids", confirmed).update();
+        if (!published.isEmpty()) {
+            jdbc.sql(MARK_PUBLISHED).param("ids", published).update();
         }
-        if (log.isDebugEnabled()) {
-            log.debug("Outbox relay published {} of {} messages", confirmed.size(), rows.size());
-        }
-        return confirmed.size();
-    }
-
-    /** Returns {@code null} when the broker acked the message, otherwise the reason. */
-    private static String awaitConfirm(CorrelationData correlation, long deadlineNanos) {
-        try {
-            long remaining = Math.max(0, deadlineNanos - System.nanoTime());
-            CorrelationData.Confirm confirm = correlation.getFuture().get(remaining, TimeUnit.NANOSECONDS);
-            return confirm.ack() ? null : "nack: " + confirm.reason();
-        } catch (TimeoutException e) {
-            return "no publisher confirm within timeout";
-        } catch (ExecutionException e) {
-            return "confirm failed: " + e.getCause();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return "interrupted while waiting for confirm";
-        }
+        log.debug("Outbox relay published {} of {} messages", published.size(), rows.size());
+        return published.size();
     }
 
     private Message toMessage(PendingRow row) {
         ObjectMapper mapper = codec.mapper();
         TraceContext trace = mapper.readValue(row.traceContext(), TraceContext.class);
+        // occurredAt = created_at: the time the business transaction wrote the row.
         Envelope envelope = new Envelope(
                 row.id(), row.eventType(), row.aggregateId(), row.aggregateVersion(),
                 row.createdAt().toInstant(), row.schemaVersion(), trace.correlationId(), trace.causationId(),
@@ -185,14 +178,13 @@ public class OutboxRelay {
 
     private void markFailed(PendingRow row, String error) {
         long delay = Math.min(MAX_BACKOFF_SECONDS, 1L << Math.min(row.attempts(), 6));
-        String trimmed = error.length() > MAX_ERROR_LENGTH ? error.substring(0, MAX_ERROR_LENGTH) : error;
         jdbc.sql(MARK_FAILED)
                 .param("id", row.id())
-                .param("error", trimmed)
+                .param("error", error)
                 .param("delaySeconds", (double) delay)
                 .update();
         log.warn("Outbox message {} ({}) not published, attempt {}, retry in {} s: {}",
-                row.id(), row.eventType(), row.attempts() + 1, delay, trimmed);
+                row.id(), row.eventType(), row.attempts() + 1, delay, error);
     }
 
     private record PendingRow(UUID id, String aggregateId, long aggregateVersion, String eventType,

@@ -18,7 +18,8 @@ import org.junit.jupiter.api.Test;
 class ExternalCallExecutorTest {
 
     private final ExternalCallExecutor executor = new ExternalCallExecutor(CircuitBreakerRegistry.ofDefaults(),
-            RetryRegistry.ofDefaults(), BulkheadRegistry.ofDefaults(), Duration.ofMillis(300), Clock.systemUTC());
+            RetryRegistry.ofDefaults(), BulkheadRegistry.ofDefaults(), Duration.ofMillis(300), Clock.systemUTC(),
+            new ec.yawar.platform.tracing.MdcTraceContextProvider());
 
     @AfterEach
     void close() {
@@ -163,6 +164,20 @@ class ExternalCallExecutorTest {
         });
 
         assertThat(cause.get()).hasRootCauseInstanceOf(java.io.IOException.class);
+    }
+
+    @Test
+    void callRunsWithTheCallersCorrelationIdAndDeadline() {
+        org.slf4j.MDC.put(ec.yawar.platform.tracing.Correlation.MDC_CORRELATION_ID, "req-42");
+        Deadline deadline = Deadline.in(Duration.ofSeconds(5), Clock.systemUTC());
+        try (Deadline.Scope ignored = Deadline.bind(deadline)) {
+            String seen = executor.call("telegram", () -> org.slf4j.MDC.get("correlationId")
+                    + "|" + Deadline.current().map(Deadline::expiresAt).orElse(null), e -> "fallback");
+
+            assertThat(seen).isEqualTo("req-42|" + deadline.expiresAt());
+        } finally {
+            org.slf4j.MDC.clear();
+        }
     }
 
     @Test

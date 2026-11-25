@@ -4,6 +4,8 @@ import ec.yawar.platform.envelope.Envelope;
 import ec.yawar.platform.inbox.BaseConsumer;
 import ec.yawar.platform.inbox.ConsumerSupport;
 import ec.yawar.platform.inbox.ConsumerTopology;
+import ec.yawar.platform.outbox.Outbox;
+import ec.yawar.platform.outbox.OutboxMessage;
 import ec.yawar.platform.tracing.Correlation;
 import java.time.Duration;
 import java.util.Map;
@@ -31,7 +33,7 @@ public class PlatformTestApplication {
 
     /**
      * Payload {@code {"failTimes": n}} fails the first n deliveries; {@code -1} always fails;
-     * {@code {"poison": true}} throws a non-retryable error.
+     * {@code {"poison": true}} throws a non-retryable error; {@code {"emit": true}} publishes {@code it.caused}.
      */
     @Component
     static class ItConsumer extends BaseConsumer {
@@ -39,10 +41,12 @@ public class PlatformTestApplication {
         final Map<UUID, AtomicInteger> deliveries = new ConcurrentHashMap<>();
         final Map<UUID, String> correlationSeen = new ConcurrentHashMap<>();
         private final JdbcClient jdbc;
+        private final Outbox outbox;
 
-        ItConsumer(ConsumerSupport support, JdbcClient jdbc) {
+        ItConsumer(ConsumerSupport support, JdbcClient jdbc, Outbox outbox) {
             super(support);
             this.jdbc = jdbc;
+            this.outbox = outbox;
         }
 
         @Override
@@ -55,6 +59,9 @@ public class PlatformTestApplication {
             int delivery = deliveries.computeIfAbsent(envelope.eventId(), k -> new AtomicInteger()).incrementAndGet();
             correlationSeen.put(envelope.eventId(), MDC.get(Correlation.MDC_CORRELATION_ID));
             jdbc.sql("INSERT INTO it_effect (event_id) VALUES (:id)").param("id", envelope.eventId()).update();
+            if (envelope.payload().path("emit").asBoolean(false)) {
+                outbox.append(OutboxMessage.event("it.caused", "x", envelope.aggregateId(), 1, Map.of()));
+            }
             if (envelope.payload().path("poison").asBoolean(false)) {
                 throw new ec.yawar.platform.inbox.NonRetryableMessageException("poison");
             }

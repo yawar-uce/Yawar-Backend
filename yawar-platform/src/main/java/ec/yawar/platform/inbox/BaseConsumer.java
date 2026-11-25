@@ -2,6 +2,8 @@ package ec.yawar.platform.inbox;
 
 import ec.yawar.platform.envelope.Envelope;
 import ec.yawar.platform.envelope.InvalidEnvelopeException;
+import ec.yawar.platform.support.PublisherConfirms;
+import ec.yawar.platform.support.SafeErrors;
 import ec.yawar.platform.tracing.Correlation;
 import ec.yawar.platform.tracing.TraceContext;
 import ec.yawar.platform.tracing.TraceContextProvider;
@@ -11,6 +13,7 @@ import org.springframework.amqp.AmqpRejectAndDontRequeueException;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.core.MessageListener;
 import org.springframework.amqp.core.MessageProperties;
+import org.springframework.amqp.rabbit.connection.CorrelationData;
 
 /**
  * Template Method for every Yawar consumer (YAW-DOC-07 §9.4): extract the trace → open a transaction →
@@ -19,7 +22,12 @@ import org.springframework.amqp.core.MessageProperties;
  * <p>A duplicate delivery is acknowledged without calling {@code handle}. When {@code handle} fails the
  * transaction rolls back (the inbox row too) and the message goes to {@code <queue>.retry}, which sends it
  * back after the retry delay. After {@code maxAttempts} deliveries, or at once for an invalid envelope or a
- * {@link NonRetryableMessageException}, it goes to {@code <queue>.dlq}.
+ * {@link NonRetryableMessageException}, it goes to {@code <queue>.dlq}; the DLQ publish is confirmed, and if
+ * the broker does not confirm it the message takes the retry path instead of being lost.
+ *
+ * <p>Delivery order is not guaranteed (replicas, retries): projections must store the last
+ * {@code aggregateVersion} and ignore older ones. Error descriptions in logs and DLQ headers contain exception
+ * classes and SQLStates only, never message text (it may echo personal data).
  *
  * <p>Subclasses are Spring beans: the platform registers a listener container for each one on
  * {@link #queue()}; declare the queues with {@link ConsumerTopology}.
@@ -91,7 +99,8 @@ public abstract class BaseConsumer implements MessageListener {
                 return;
             }
             log.warn("{} {} failed on attempt {}/{}, retrying: {}", envelope.eventType(), envelope.eventId(),
-                    attempt, support.maxAttempts(), e.toString());
+                    attempt, support.maxAttempts(), SafeErrors.describe(e));
+            log.debug("Failure detail of {}", envelope.eventId(), e);
             throw new AmqpRejectAndDontRequeueException("retry " + envelope.eventId(), e);
         }
     }
@@ -101,12 +110,24 @@ public abstract class BaseConsumer implements MessageListener {
     }
 
     private void deadLetter(Message message, Exception cause, long attempt) {
+        String dlq = ConsumerTopology.dlq(queue());
+        String error = SafeErrors.describe(cause);
         MessageProperties props = message.getMessageProperties();
-        props.setHeader(HEADER_ERROR, cause.toString());
+        props.setHeader(HEADER_ERROR, error);
         props.setHeader(HEADER_ATTEMPTS, attempt);
-        support.rabbitTemplate().send("", ConsumerTopology.dlq(queue()), message);
+
+        CorrelationData correlation = new CorrelationData();
+        support.rabbitTemplate().send("", dlq, message, correlation);
+        PublisherConfirms.Result result = PublisherConfirms.await(correlation,
+                System.nanoTime() + support.confirmTimeout().toNanos());
+        if (!result.confirmed()) {
+            // Do not ack a message that is not safely in the DLQ: send it through the retry queue instead.
+            log.error("Could not move message {} to {} ({}); retrying later", props.getMessageId(), dlq,
+                    result.reason());
+            throw new AmqpRejectAndDontRequeueException("DLQ publish failed for " + props.getMessageId());
+        }
         log.error("Message {} (correlation {}) moved to {} after {} attempt(s): {}", props.getMessageId(),
-                props.getHeaders().get(Correlation.AMQP_HEADER), ConsumerTopology.dlq(queue()), attempt,
-                cause.toString());
+                props.getHeaders().get(Correlation.AMQP_HEADER), dlq, attempt, error);
+        log.debug("Failure detail of {}", props.getMessageId(), cause);
     }
 }

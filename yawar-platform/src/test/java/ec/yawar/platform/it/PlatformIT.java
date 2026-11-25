@@ -202,6 +202,44 @@ class PlatformIT {
     }
 
     @Test
+    void commandNobodyCanReceiveIsRetriedNotLost() {
+        UUID id = tx.execute(s -> outbox.append(
+                OutboxMessage.command("nobody.listens", "request", "R-" + UUID.randomUUID(), 1, Map.of())));
+
+        await().atMost(Duration.ofSeconds(10)).until(() ->
+                count("SELECT attempts FROM outbox WHERE id = :id", id) >= 1);
+
+        Map<String, Object> row = jdbc.sql("SELECT published_at, last_error FROM outbox WHERE id = :id")
+                .param("id", id).query().singleRow();
+        assertThat(row.get("published_at")).isNull();
+        assertThat((String) row.get("last_error")).startsWith("unroutable");
+        jdbc.sql("DELETE FROM outbox WHERE id = :id").param("id", id).update();
+    }
+
+    @Test
+    void eventWithoutSubscribersIsConsideredPublished() {
+        UUID id = tx.execute(s -> outbox.append(OutboxMessage.event("it.nobody.subscribes", "donor", "D-9", 1, Map.of())));
+
+        await().atMost(Duration.ofSeconds(10)).until(() ->
+                count("SELECT count(*) FROM outbox WHERE id = :id AND published_at IS NOT NULL", id) == 1);
+    }
+
+    @Test
+    void eventPublishedWhileHandlingAMessageCarriesItsCausationAndCorrelation() {
+        String queue = captureQueue("it.caused");
+        Envelope received = envelope("{\"emit\":true}");
+
+        send(received);
+
+        Message message = await().atMost(Duration.ofSeconds(10))
+                .until(() -> rabbit.receive(queue), m -> m != null);
+        Envelope caused = codec.read(message.getBody());
+        assertThat(caused.causationId()).isEqualTo(received.eventId().toString());
+        assertThat(caused.correlationId()).isEqualTo(received.correlationId());
+        assertThat(caused.traceparent()).isEqualTo(TRACEPARENT);
+    }
+
+    @Test
     void housekeepingPurgesOldPublishedRowsAndOldInboxRows() {
         UUID id = tx.execute(s -> outbox.append(OutboxMessage.event("it.old", "donor", "D-old", 1, Map.of())));
         jdbc.sql("UPDATE outbox SET published_at = now() - interval '8 days' WHERE id = :id").param("id", id).update();
@@ -296,7 +334,7 @@ class PlatformIT {
         });
         assertThat(consumer.deliveries.get(poison.eventId())).hasValue(1);
         assertThat(dead).extracting(m -> m.getMessageProperties().<String>getHeader(BaseConsumer.HEADER_ERROR))
-                .anySatisfy(e -> assertThat(e).contains("poison"))
+                .anySatisfy(e -> assertThat(e).contains("NonRetryableMessageException"))
                 .anySatisfy(e -> assertThat(e).contains("InvalidEnvelopeException"));
     }
 }
