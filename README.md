@@ -44,6 +44,7 @@ Local credentials live in `deploy/local/.env` (git-ignored). Edit that file, nev
 | Keycloak | http://localhost:8080 (admin console at `/admin`) | `KEYCLOAK_ADMIN_USER` / `KEYCLOAK_ADMIN_PASSWORD` |
 | RabbitMQ 4.2 | AMQP `localhost:5672`, UI http://localhost:15672 — vhosts `yawar-dev`, `yawar-qa` | `RABBITMQ_USER` / `RABBITMQ_PASSWORD` |
 | Mailpit | SMTP `localhost:1025`, UI http://localhost:8025 | none (accepts any SMTP auth) |
+| Grafana otel-lgtm | Grafana http://localhost:3000 (traces in Tempo, logs in Loki, metrics in Prometheus); OTLP gRPC `localhost:4317`, HTTP `localhost:4318` | none (anonymous admin, bound to 127.0.0.1) |
 
 ### Everyday commands
 ```bash
