@@ -2,14 +2,17 @@
 #   docker build -f ms-donors/Dockerfile -t yawar/ms-donors .
 FROM eclipse-temurin:21.0.13_9-jdk-alpine AS build
 WORKDIR /src
-COPY mvnw pom.xml ./
+# Built module by module (not through the root aggregator, which lists modules this image does not copy).
+COPY mvnw ./
 COPY .mvn .mvn
 COPY yawar-platform/pom.xml yawar-platform/pom.xml
 COPY ms-donors/pom.xml ms-donors/pom.xml
-RUN ./mvnw -B -ntp -q -pl ms-donors -am dependency:go-offline
+RUN ./mvnw -B -ntp -q -f yawar-platform/pom.xml dependency:go-offline
 COPY yawar-platform/src yawar-platform/src
+RUN ./mvnw -B -ntp -q -f yawar-platform/pom.xml install -DskipTests -Djacoco.skip=true \
+ && ./mvnw -B -ntp -q -f ms-donors/pom.xml dependency:go-offline
 COPY ms-donors/src ms-donors/src
-RUN ./mvnw -B -ntp -q -pl ms-donors -am package -DskipTests -Djacoco.skip=true \
+RUN ./mvnw -B -ntp -q -f ms-donors/pom.xml package -DskipTests -Djacoco.skip=true \
  && java -Djarmode=tools -jar ms-donors/target/ms-donors-*.jar extract --layers --launcher --destination /extracted
 
 FROM eclipse-temurin:21.0.13_9-jre-alpine

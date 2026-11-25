@@ -23,7 +23,7 @@ class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         // Error dispatches render the status of an already-authorized request (404, 400…).
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
-                        .requestMatchers("/health/live", "/health/ready").permitAll()
+                        .requestMatchers("/health/live", "/health/ready", "/info").permitAll()
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .requestMatchers("/api/v1/donors/**").hasRole("donor")
                         .anyRequest().denyAll())
