@@ -67,3 +67,4 @@ psql: $(ENV_FILE) ## Open psql as the admin user (DB=<database>, SQL='<command>'
 # Each area keeps its targets in its own file to avoid conflicts between tasks.
 include build.mk
 include deploy/kind/kind.mk
+include deploy/keycloak/keycloak.mk
