@@ -1,6 +1,7 @@
 # Yawar local environment: shared infrastructure for development.
 # Use the Makefile at the repository root (`make up`, `make ps`, `make down`, `make reset`).
-# Optional profiles are added by later tasks: `ad` (Samba AD) and `gateway` (API Gateway).
+# Optional profiles: `platform` (config-server, discovery-service; `make up PROFILE=platform`), `ad` (Samba AD),
+# `gateway` (API Gateway).
 
 name: ${COMPOSE_PROJECT_NAME:-yawar}
 
@@ -146,6 +147,30 @@ services:
       interval: 10s
       timeout: 5s
       retries: 30
+      start_period: 30s
+
+  # Eureka server (YAW-217). Dashboard http://localhost:8761 (EUREKA_USER / EUREKA_PASSWORD). It imports its
+  # configuration from config-server when that is running (optional import) and starts without it otherwise.
+  discovery-service:
+    profiles: ["platform"]
+    build:
+      context: ../../discovery-service
+    image: yawar/discovery-service:local
+    restart: unless-stopped
+    environment:
+      EUREKA_USER: ${EUREKA_USER:?set EUREKA_USER in deploy/local/.env (see .env.example)}
+      EUREKA_PASSWORD: ${EUREKA_PASSWORD:?set EUREKA_PASSWORD in deploy/local/.env}
+      EUREKA_SELF_PRESERVATION: "false"
+      CONFIG_SERVER_URL: http://config-server:8888/config
+      CONFIG_SERVER_USER: ${CONFIG_SERVER_USER:-}
+      CONFIG_SERVER_PASSWORD: ${CONFIG_SERVER_PASSWORD:-}
+    ports:
+      - "127.0.0.1:${DISCOVERY_PORT:-8761}:8761"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8761/health/ready >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
       start_period: 30s
 
 volumes:
