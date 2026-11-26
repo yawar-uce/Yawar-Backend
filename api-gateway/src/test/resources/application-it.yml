@@ -1,0 +1,22 @@
+spring:
+  cloud:
+    config:
+      enabled: false
+    bus:
+      enabled: false
+    loadbalancer:
+      cache:
+        enabled: false
+eureka:
+  client:
+    enabled: false
+management:
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          enabled: false
+  otlp:
+    metrics:
+      export:
+        enabled: false

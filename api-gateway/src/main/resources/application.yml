@@ -1,0 +1,137 @@
+# api-gateway (YAW-33). Local defaults; config-server (yawar-config/api-gateway.yml, application*.yml) overrides them
+# per environment. Secrets only from the environment (deploy/local/.env, Kubernetes Secrets).
+server:
+  port: ${GATEWAY_PORT:8000}
+  shutdown: graceful
+
+spring:
+  application:
+    name: api-gateway
+  config:
+    # Optional locally (also starts from the IDE without config-server); Kubernetes sets CONFIG_IMPORT_MODE to an
+    # empty value so the import is required (with CONFIG_FAIL_FAST=true).
+    import: "${CONFIG_IMPORT_MODE:optional:}configserver:${CONFIG_SERVER_URL:http://localhost:8888/config}"
+  cloud:
+    config:
+      username: ${CONFIG_SERVER_USER:}
+      password: ${CONFIG_SERVER_PASSWORD:}
+      profile: ${YAWAR_ENV:dev}
+      fail-fast: ${CONFIG_FAIL_FAST:false}
+      request-read-timeout: 5000
+    gateway:
+      server:
+        webflux:
+          httpclient:
+            connect-timeout: 1000          # ms; YAW-DOC-07 §9.4
+            response-timeout: 2s
+          default-filters:
+            # The service and the gateway must not both add CORS headers (the gateway's win).
+            - DedupeResponseHeader=Access-Control-Allow-Origin Access-Control-Allow-Credentials, RETAIN_FIRST
+            # 60 requests/minute per user on every /api route (limits in yawar.gateway.rate-limit).
+            - name: RequestRateLimiter
+              args:
+                deny-empty-key: false
+          routes:
+            # A 500 of the service is passed through with its own problem+json (a bug, not an outage); only
+            # 502/503/504 and timeouts count as failures and get the fallback. No StripPrefix and no retry: the service owns /api/v1/donors and POSTs are not idempotent. The
+            # Authorization header is forwarded unchanged because every service validates the JWT again.
+            - id: ms-donors
+              uri: lb://ms-donors
+              predicates:
+                - Path=/api/v1/donors/**
+              filters:
+                - name: CircuitBreaker
+                  args:
+                    name: ms-donors
+                    fallbackUri: forward:/fallback/ms-donors
+                    statusCodes: 502,503,504
+  reactor:
+    context-propagation: auto             # correlationId from the Reactor context to the MDC
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: 500ms                       # command timeout: a slow Redis falls back to the local limit
+      connect-timeout: 500ms
+  rabbitmq:                                # Spring Cloud Bus only (configuration refresh)
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:yawar}
+    password: ${RABBITMQ_PASSWORD:}
+    virtual-host: ${RABBITMQ_VHOST:yawar-dev}
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # The token's iss as the browser sees Keycloak; keys fetched from jwk-set-uri (inside compose/k8s
+          # Keycloak has another host name). audiences: tokens issued for other clients are rejected.
+          issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8080/realms/yawar-dev}
+          jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:8080/realms/yawar-dev/protocol/openid-connect/certs}
+          audiences: yawar-api
+
+yawar:
+  gateway:
+    cors:
+      # Comma-separated origin patterns; production sets the real host in yawar-config (one list per environment).
+      allowed-origin-patterns: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:[*],http://localhost,https://localhost,capacitor://localhost}
+    rate-limit:
+      replenish-per-second: 1              # 1/s with a burst of 60 = 60 requests per minute per user
+      burst: 60
+      redis-timeout: 500ms
+    circuit-breaker:
+      sliding-window-size: 20
+      failure-rate-threshold: 50
+      wait-in-open-state: 30s
+      half-open-calls: 3
+      time-limit: 2s
+
+logging:
+  level:
+    # Logs a stack trace per request while Redis is down; ResilientRateLimiter logs one throttled warning instead.
+    org.springframework.cloud.gateway.filter.ratelimit.RedisRateLimiter: "OFF"
+
+eureka:
+  client:
+    enabled: ${EUREKA_ENABLED:true}
+    service-url:
+      # Same expression as yawar-config/application.yml (which overrides it when config-server runs).
+      defaultZone: http://${EUREKA_USER:eureka}:${EUREKA_PASSWORD:}@${EUREKA_HOST:localhost}:${EUREKA_PORT:8761}/eureka/
+  instance:
+    prefer-ip-address: true
+
+management:
+  endpoints:
+    web:
+      base-path: /
+      exposure:
+        include: health,info
+  info:
+    env:
+      enabled: true           # info.* properties at /info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      group:
+        live:
+          include: livenessState
+        ready:
+          # Redis is deliberately not part of readiness: without it the gateway limits per pod (fallback).
+          include: readinessState
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLING:1.0}
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/traces
+  otlp:
+    metrics:
+      export:
+        url: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/metrics
+
+info:
+  yawar:
+    environment: ${YAWAR_ENV:dev}
