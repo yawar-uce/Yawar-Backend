@@ -64,6 +64,9 @@ Runs on every pull request and push to `dev`, `qa` and `production`:
 | `images` | `.github/scripts/build-images.sh`: builds the image of every module with a Dockerfile (repository root as context when it copies `yawar-platform`) and scans it with Trivy | HIGH/CRITICAL image vulnerability with a fix (V-03) |
 
 Images are tagged `yawar/<module>:<commit SHA>` and not pushed here: pushing to ECR and deploying is CD (YAW-16).
+Both Trivy scans use Trivy 0.70.0; every action is pinned by commit SHA and the gitleaks download is checksum-verified.
+Runs of a pull request cancel the previous run of that pull request; runs on `dev`, `qa` and `production` are never
+cancelled.
 Run the same checks locally: `.github/scripts/coverage-summary.sh` after `make coverage`, and
 `.github/scripts/build-images.sh [module]` (Docker must be running).
 

@@ -5,13 +5,20 @@
 set -euo pipefail
 shopt -s nullglob
 
-csvs=(*/target/site/jacoco/jacoco.csv)
+# Only modules of this checkout (a folder with a pom.xml), never leftovers of other branches.
+csvs=()
+for csv in */target/site/jacoco/jacoco.csv; do
+  [ -f "${csv%%/*}/pom.xml" ] && csvs+=("$csv")
+done
 echo "### Coverage (JaCoCo, line, threshold 70 %)"
 echo
 if [ ${#csvs[@]} -eq 0 ]; then
   echo "No coverage reports found."
   exit 0
 fi
+modules=$(for pom in */pom.xml; do dirname "$pom"; done | wc -l)
+echo "_${#csvs[@]} of ${modules} modules produced a coverage report._"
+echo
 echo "| Module | Line coverage | Lines covered / total |"
 echo "|---|---|---|"
 for csv in "${csvs[@]}"; do
