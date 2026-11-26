@@ -68,8 +68,10 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>${maven-surefire-plugin.version}</version>
                 <configuration>
-                    <!-- No unit tests here: everything is *E2E and needs the stack. -->
-                    <skipTests>true</skipTests>
+                    <!-- Only *Test (plain JUnit, no stack); the flows are *E2E and run in failsafe. -->
+                    <includes>
+                        <include>**/*Test.java</include>
+                    </includes>
                 </configuration>
             </plugin>
             <plugin>

@@ -131,15 +131,27 @@ public final class E2eEnvironment implements BeforeAllCallback, ParameterResolve
                 return;
             }
             closed = true;
-            // Best effort: a failing cleanup must not hide the test result, but never leave the client behind silently.
+            // The client first (it is what must never stay behind), in its own try/finally; then every user. Each
+            // deletion is attempted and failures are reported loudly at the end, never hiding the test result.
+            List<String> failures = new ArrayList<>();
             try {
-                userIds.forEach(keycloak::deleteUser);
                 if (clientId != null) {
                     keycloak.deleteClient(clientId);
                 }
             } catch (RuntimeException e) {
-                System.err.println("E2E cleanup failed, delete client " + E2eConfig.CLIENT_ID + " and e2e-* users in "
-                        + config.realm() + " by hand: " + e.getMessage());
+                failures.add(e.getMessage());
+            } finally {
+                for (String userId : userIds) {
+                    try {
+                        keycloak.deleteUser(userId);
+                    } catch (RuntimeException e) {
+                        failures.add(e.getMessage());
+                    }
+                }
+            }
+            if (!failures.isEmpty()) {
+                System.err.println("E2E CLEANUP FAILED, delete client " + E2eConfig.CLIENT_ID + " and e2e-* users in realm "
+                        + config.realm() + " by hand: " + failures);
             }
         }
     }
