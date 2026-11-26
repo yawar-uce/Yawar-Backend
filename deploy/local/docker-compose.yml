@@ -1,7 +1,7 @@
 # Yawar local environment: shared infrastructure for development.
 # Use the Makefile at the repository root (`make up`, `make ps`, `make down`, `make reset`).
 # Optional profiles: `platform` (config-server, discovery-service, api-gateway, ms-donors; `make up PROFILE=platform`),
-# `ad` (Samba AD), `gateway` (config-server, discovery-service and the API Gateway only).
+# `ad` (Samba AD), `idp-mock` (OIDC stub that stands in for Google in `make keycloak-check`; `make up PROFILE=idp-mock`), `gateway` (config-server, discovery-service and the API Gateway only).
 
 name: ${COMPOSE_PROJECT_NAME:-yawar}
 
@@ -127,6 +127,17 @@ services:
     depends_on:
       keycloak:
         condition: service_healthy
+
+  # Test-only OIDC identity provider (stands in for Google, HU-02): interactive login where the claims
+  # (email, given_name, ...) are typed in a form. Used only by deploy/keycloak/test_realm.py; never in a realm file.
+  idp-mock:
+    profiles: ["idp-mock"]
+    image: ghcr.io/navikt/mock-oauth2-server:3.0.1
+    restart: "no"
+    environment:
+      JSON_CONFIG: '{"interactiveLogin": true}'
+    ports:
+      - "127.0.0.1:${IDP_MOCK_PORT:-8099}:8080"
 
   mailpit:
     image: axllent/mailpit:v1.34.0
