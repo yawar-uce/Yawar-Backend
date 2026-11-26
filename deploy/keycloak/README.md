@@ -18,6 +18,10 @@ The import is idempotent: editing a file and re-running it updates the realm in 
   The access token carries it as claim `privacy_consent`. Keycloak only gates sign-up: **ms-donors is the
   system of record** for consents (purpose, policy version, timestamp) and revocations, recording the consent
   when it first sees the claim on `GET /donors/me` (YAW-37/38) without calling Keycloak (C-02).
+- **Sign-up messages (HU-01):** a repeated email answers "Este correo ya está registrado. Inicia sesión o recupera tu
+  contraseña." (`emailExistsMessage`/`usernameExistsMessage`) and a missing consent "Necesitamos tu consentimiento para tratar
+  tus datos (LOPDP) y crear tu cuenta." (`error-user-attribute-required`, `privacyConsentRequired`), each also in English.
+  They are the realm `messageBundles` (keycloak-config-cli does not update `localizationTexts` of an existing realm).
 - **Data minimization:** only email, password and consent are required; first and last name are optional.
 - **Roles:** `donor, recruitment, logistics, hospital, administrator, auditor` and `agent` (AI agent service
   role). Every new user gets **only** `donor` (default role); staff roles are assigned by an administrator.
@@ -40,7 +44,7 @@ and a Job that runs keycloak-config-cli with `realms/yawar-qa.yaml`. The API Gat
 ```bash
 make up                          # starts Keycloak and applies realms/yawar-dev.yaml (container keycloak-config)
 make keycloak-import             # re-apply after editing the file (REALM=yawar-qa to try the qa file locally)
-make keycloak-check              # 41 checks: settings, roles, PKCE login, token claims, sign-up with/without
+make keycloak-check              # 44 checks: settings, roles, PKCE login, token claims, sign-up with/without
                                  # consent, verification email (fictional users, deleted afterwards)
 ```
 Admin console: http://localhost:8080/admin (`KEYCLOAK_ADMIN_USER` / `KEYCLOAK_ADMIN_PASSWORD`), realm `yawar-dev`.
