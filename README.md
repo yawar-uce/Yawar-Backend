@@ -127,7 +127,7 @@ The PostgreSQL init script only runs on an empty volume: after changing database
 
 ### Optional profiles
 Compose profiles, started with `make up PROFILE=<name>`: `platform` (config-server, discovery-service, api-gateway
-and ms-donors; the images are built from the module folders), `ad` (Samba AD) and `gateway` (config-server,
+and ms-donors; the images are built from the module folders), `ad` (Samba AD `yawar.lab` with 10 staff users: `make up PROFILE=ad && make ad-seed && make ad-test`, see [deploy/ad](deploy/ad/README.md)) and `gateway` (config-server,
 discovery-service and the API Gateway only).
 The config server reads `~/yawar/yawar-config` (`CONFIG_SERVER_PROFILES=native`, default) or the private repo
 `yawar-uce/yawar-config` (`=git` plus `CONFIG_GIT_TOKEN` in `deploy/local/.env`).
