@@ -35,6 +35,8 @@ The import is idempotent: editing a file and re-running it updates the realm in 
   and last name from Google's `given_name`/`family_name` (default mappers of the Google provider). Its login runs
   the custom flow `yawar-first-broker-login` (see "Google sign-in flow").
 
+- **Staff from Active Directory (HU-32, ADR-042):** LDAP provider `yawar-ad`, see "Staff accounts from Active Directory".
+
 ## QA (pending, YAW-219 / YAW-13)
 The QA Keycloak runs behind the Ingress on `https://yawar-qa-<ip>.sslip.io/auth`: it needs
 `KC_HTTP_RELATIVE_PATH=/auth`, `KC_HOSTNAME=https://yawar-qa-<ip>.sslip.io/auth` and `KC_PROXY_HEADERS=xforwarded`,
@@ -51,6 +53,49 @@ make up PROFILE=idp-mock         # OIDC stub for the Google checks (they are ski
 ```
 Admin console: http://localhost:8080/admin (`KEYCLOAK_ADMIN_USER` / `KEYCLOAK_ADMIN_PASSWORD`), realm `yawar-dev`.
 Login page: http://localhost:8080/realms/yawar-dev/account. Verification emails: http://localhost:8025.
+
+## Staff accounts from Active Directory (YAW-32)
+The realm federates the Samba AD `yawar.lab` (`deploy/ad/`) as the LDAP provider `yawar-ad`: vendor `ad`, **READ_ONLY**
+(Keycloak never writes to AD; passwords are changed in AD), LDAPS, users of `OU=Personal,OU=Yawar`, imported on first
+login or sync (`sAMAccountName` = username, `objectGUID` = id, `trustEmail`, no registration sync).
+- **Roles (RF-04, RF-05):** the role mapper `staff roles` reads the groups `(cn=GG-YAW-*)` of `OU=Grupos` as realm roles
+  `GG-YAW-<X>`, each a composite of the Yawar role (`ADMINISTRATOR→administrator`, `AUDITOR→auditor`,
+  `RECRUITMENT→recruitment`, `LOGISTICS→logistics`, `HOSPITAL→hospital`). Tokens carry the Yawar role only: the `GG-YAW-*`
+  roles are outside the scope mappings of `yawar-web`.
+- **Site:** `physicalDeliveryOfficeName` → user attribute `site` (read-only mapper, always read from AD) → claim `site`
+  in the access token of `yawar-web` (e.g. `quito-hcam`); `site` is declared in the user profile as admin-only.
+- **Disabled accounts:** the `MSAD account controls` mapper reads `userAccountControl`; a disabled AD user cannot sign in
+  (and can again when re-enabled).
+- **Bind account:** the read-only `svc.keycloak` (created by `make ad-seed`, in `OU=Servicios`, outside `usersDn`, member of
+  no group); its password is `SVC_KEYCLOAK` in `deploy/ad/.secrets/passwords.env`.
+- **Rule (donor role):** `donor` stays in the realm default roles, so Keycloak also gives it to imported staff and their
+  tokens carry `donor` next to the staff role. Therefore **donor-only endpoints must reject tokens that carry any staff
+  role** (`administrator`, `recruitment`, `logistics`, `hospital`, `auditor`). Staff tokens have no `privacy_consent` claim
+  (checked for all 10 users), so `GET /donors/me` already answers 422 and creates no donor. Enforcing the rule in ms-donors
+  is a follow-up.
+
+Variables (`deploy/local/.env`, all passed to `keycloak-config`): `KC_AD_ENABLED` (`false` imports the realm with the
+provider off), `KC_AD_URL` (default `ldaps://samba-ad:636`), `KC_AD_BIND_DN`, `KC_AD_BIND_PASSWORD`. In qa they come from the
+Kubernetes Secret / Helm values of the config Job and point to the qa directory; the realm files do not change.
+
+```bash
+make up PROFILE=ad && make ad-seed && make ad-cert   # AD, users + svc.keycloak, lab CA -> deploy/ad/ca/ad-ca.pem
+# set KC_AD_ENABLED=true and KC_AD_BIND_PASSWORD (value of SVC_KEYCLOAK) in deploy/local/.env
+make up PROFILE=ad                                   # recreates Keycloak so it trusts the CA
+make keycloak-import                                 # applies the realm with the provider enabled
+make ad-federation-check                             # 18 checks (below)
+make token USER=yw.recruit01                         # decoded claims (roles, site, aud); never the token or password
+```
+**Truststore:** `deploy/ad/ca/` is mounted read-only into Keycloak (`KC_TRUSTSTORE_PATHS=/opt/keycloak/ad-ca`, every PEM
+in the directory). It is a directory, not a single file, so Keycloak starts the same before `make ad-cert` has run (empty
+directory, no extra CA); only the federation fails to connect until the CA is there and Keycloak is restarted. The file is
+git-ignored. In qa the CA of the real directory goes into a ConfigMap mounted at the same path.
+
+`make ad-federation-check` verifies: provider and mappers present, READ_ONLY, LDAPS with the truststore, full sync
+(10 users), each of the 10 users gets exactly its role and site, `hu32_sc1_logistics_user_has_logistics_role_and_site`
+(role `logistics`, `site`, no `administrator`), no `GG-YAW-*` in the token, a disabled AD account cannot sign in
+(`yw.hospital02` is disabled with `samba-tool` and always re-enabled), the password and profile cannot be changed from
+Keycloak. `make token` uses the same PKCE browser flow as the web app; no client enables direct access grants.
 
 ## Enabling Google sign-in
 1. Google Cloud Console → APIs & Services → Credentials → OAuth client ID → *Web application*.

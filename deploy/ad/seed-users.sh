@@ -58,6 +58,20 @@ for ou in "OU=Yawar" "$OU_USERS" "$OU_GROUPS"; do
   if ! sam ou list | grep -qix "$ou"; then sam ou create "$ou" >/dev/null; changed "ou $ou"; fi
 done
 
+# Service account for the Keycloak LDAP federation (YAW-32): an ordinary domain user (read-only by default, member
+# of no group), in OU=Servicios so it is outside Keycloak's usersDn and is never imported as a person.
+SVC_USER="svc.keycloak"; OU_SERVICES="OU=Servicios,OU=Yawar"
+if ! sam ou list | grep -qix "$OU_SERVICES"; then sam ou create "$OU_SERVICES" >/dev/null; changed "ou $OU_SERVICES"; fi
+if ! sam user list | grep -qx "$SVC_USER"; then
+  pw="$(genpw)"; pw_set "$SVC_USER" "$pw"
+  sam user create "$SVC_USER" --random-password --userou="$OU_SERVICES" --description="Keycloak LDAP federation (read-only)" >/dev/null
+  setpw "$SVC_USER" "$pw"
+  changed "service account $SVC_USER (password in .secrets/passwords.env)"
+elif [ "$RESET" = 1 ] || [ -z "$(pw_get "$SVC_USER")" ]; then
+  pw="$(genpw)"; pw_set "$SVC_USER" "$pw"; setpw "$SVC_USER" "$pw"
+  changed "password reset $SVC_USER"
+fi
+
 # Groups
 for g in ADMINISTRATOR AUDITOR RECRUITMENT LOGISTICS HOSPITAL; do
   if ! sam group list | grep -qx "GG-YAW-$g"; then

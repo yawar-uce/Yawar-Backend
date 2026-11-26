@@ -19,11 +19,11 @@ ad-users: $(ENV_FILE) ## List the staff users with group and site (no passwords)
 	@$(COMPOSE) exec -T $(AD_SERVICE) bash -s < deploy/ad/list-users.sh
 
 .PHONY: ad-cert
-ad-cert: $(ENV_FILE) ## Export the lab CA to deploy/ad/.secrets/ad-ca.pem (Keycloak truststore)
-	@mkdir -p deploy/ad/.secrets
-	@$(COMPOSE) exec -T $(AD_SERVICE) cat /var/lib/samba/tls/ca.pem > deploy/ad/.secrets/ad-ca.pem.tmp \
-	  && grep -q 'BEGIN CERTIFICATE' deploy/ad/.secrets/ad-ca.pem.tmp \
-	  && chmod 644 deploy/ad/.secrets/ad-ca.pem.tmp \
-	  && mv deploy/ad/.secrets/ad-ca.pem.tmp deploy/ad/.secrets/ad-ca.pem \
-	  && echo "Wrote deploy/ad/.secrets/ad-ca.pem" \
-	  || { rm -f deploy/ad/.secrets/ad-ca.pem.tmp; echo "ad-cert failed: is samba-ad running?" >&2; exit 1; }
+ad-cert: $(ENV_FILE) ## Export the lab CA to deploy/ad/ca/ad-ca.pem (Keycloak truststore; then restart keycloak)
+	@mkdir -p deploy/ad/ca
+	@$(COMPOSE) exec -T $(AD_SERVICE) cat /var/lib/samba/tls/ca.pem > deploy/ad/ca/ad-ca.pem.tmp \
+	  && grep -q 'BEGIN CERTIFICATE' deploy/ad/ca/ad-ca.pem.tmp \
+	  && chmod 644 deploy/ad/ca/ad-ca.pem.tmp \
+	  && mv deploy/ad/ca/ad-ca.pem.tmp deploy/ad/ca/ad-ca.pem \
+	  && echo "Wrote deploy/ad/ca/ad-ca.pem (the public CA certificate only; restart keycloak to trust it)" \
+	  || { rm -f deploy/ad/ca/ad-ca.pem.tmp; echo "ad-cert failed: is samba-ad running?" >&2; exit 1; }
