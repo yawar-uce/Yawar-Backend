@@ -1,0 +1,6 @@
+# Config repository of the E2E run in CI (YAW-47). The real one (yawar-uce/yawar-config) is private and needs a token,
+# so CI mounts this folder in config-server (YAWAR_CONFIG_DIR=./e2e-config, native profile). Services keep their own
+# defaults from the jar; this file only proves that config-server is up and serves a (nearly empty) configuration.
+info:
+  yawar:
+    config-source: deploy/local/e2e-config

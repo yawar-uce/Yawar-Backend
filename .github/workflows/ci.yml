@@ -16,10 +16,10 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Secrets, build, unit + integration tests (Testcontainers), coverage gate and dependency scan.
-  ci:
+  # Secrets and dependencies: gitleaks over the whole history and Trivy over the file system (V-03).
+  security:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
         with:
@@ -35,42 +35,6 @@ jobs:
           tar -xzf gitleaks.tar.gz gitleaks
           ./gitleaks git . --redact --no-banner --verbose
 
-      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3  # v4
-        with:
-          distribution: temurin
-          java-version: '21'
-          cache: maven
-
-      # One reactor build from the root aggregator pom: yawar-platform first, then every service.
-      # verify = unit tests (surefire) + integration tests (failsafe, Testcontainers: Docker is available on
-      # ubuntu-latest) + JaCoCo report and the 70 % gate of each module (V-01).
-      - name: Build and test every module (coverage ≥ 70 %, V-01)
-        run: ./mvnw -B -ntp verify
-
-      - name: Coverage summary
-        if: ${{ !cancelled() }}
-        run: .github/scripts/coverage-summary.sh >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Upload coverage reports
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
-        with:
-          name: coverage-reports
-          path: '*/target/site/jacoco/'
-          if-no-files-found: ignore
-          retention-days: 14
-
-      - name: Upload test reports (on failure)
-        if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
-        with:
-          name: test-reports
-          path: |
-            */target/surefire-reports/
-            */target/failsafe-reports/
-          if-no-files-found: ignore
-          retention-days: 7
-
       # trivy-action v0.36.0 runs Trivy 0.70.0, the same version as the image scan (build-images.sh).
       - name: Trivy filesystem scan (V-03)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
@@ -83,7 +47,7 @@ jobs:
           skip-dirs: '**/target'
 
   # Lint of the committed API contracts (RNF-10, V-02). That the running services match them is checked by the
-  # *ContractIT tests of the `ci` job.
+  # *ContractIT tests of the `functional` job.
   contracts:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -104,6 +68,167 @@ jobs:
           for f in docs/asyncapi/*.yaml; do
             npx --yes @asyncapi/cli@6.3.1 validate "$f" --fail-severity=info
           done
+
+  # UT: unit tests of every module (surefire, *Test), fast feedback without Docker. JaCoCo is off here on purpose: the
+  # 70 % gate measures unit + integration tests together (yawar-platform alone reaches 61 % with unit tests only), so it
+  # is enforced in `functional`.
+  unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3  # v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      # One reactor build from the root aggregator pom: yawar-platform first, then every service.
+      - name: Unit tests
+        run: ./mvnw -B -ntp verify -DskipITs -Djacoco.skip=true
+
+      - name: Test summary
+        if: ${{ !cancelled() }}
+        run: .github/scripts/test-summary.sh surefire "Unit tests (surefire)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload JUnit reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: unit-test-reports
+          path: '*/target/surefire-reports/*.xml'
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # FT: integration, acceptance (one per Gherkin scenario) and contract tests (failsafe, *IT, Testcontainers: Docker is
+  # available on ubuntu-latest). It runs the whole `verify`, so the unit tests (seconds) run again in the same build and
+  # JaCoCo merges both into the line coverage gate of each module (V-01, RNF-11).
+  functional:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3  # v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Integration, acceptance and contract tests (coverage ≥ 70 %, V-01)
+        run: ./mvnw -B -ntp verify
+
+      - name: Test summary
+        if: ${{ !cancelled() }}
+        run: .github/scripts/test-summary.sh failsafe "Functional tests (failsafe, *IT / *AcceptanceIT / *ContractIT)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Coverage summary
+        if: ${{ !cancelled() }}
+        run: .github/scripts/coverage-summary.sh >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload JUnit reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: functional-test-reports
+          path: |
+            */target/failsafe-reports/
+            */target/surefire-reports/*.xml
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Upload coverage reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: coverage-reports
+          path: '*/target/site/jacoco/'
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # Gate: the required status check `ci` (rulesets). It passes only when security, unit and functional all passed;
+  # `if: always()` makes it report a failure instead of being skipped when one of them fails (a skipped required check
+  # would count as passed). `e2e` is reported on its own and is not part of the gate yet.
+  ci:
+    needs: [security, unit, functional]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Require every job to have passed
+        env:
+          SECURITY: ${{ needs.security.result }}
+          UNIT: ${{ needs.unit.result }}
+          FUNCTIONAL: ${{ needs.functional.result }}
+        run: |
+          {
+            echo "### ci gate"
+            echo
+            echo "| Job | Result |"
+            echo "|---|---|"
+            echo "| security (gitleaks, Trivy) | ${SECURITY} |"
+            echo "| unit (UT) | ${UNIT} |"
+            echo "| functional (FT, coverage gate) | ${FUNCTIONAL} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          for result in "$SECURITY" "$UNIT" "$FUNCTIONAL"; do
+            [ "$result" = success ] || { echo "A required job did not succeed (security=$SECURITY unit=$UNIT functional=$FUNCTIONAL)"; exit 1; }
+          done
+
+  # E2E (YAW-47): the real stack from docker compose (profile platform: config-server, Eureka, API Gateway, ms-donors and
+  # PostgreSQL, RabbitMQ, Redis, Keycloak), then the REST Assured tests of e2e-tests/ through the gateway.
+  # Not started: Mailpit and the Grafana stack (not needed), Samba AD. config-server reads deploy/local/e2e-config because
+  # the real config repository (yawar-uce/yawar-config) is private. All secrets of the run are random.
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3  # v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Create deploy/local/.env with random secrets
+        run: .github/scripts/e2e-env.sh
+
+      - name: Start the stack
+        run: |
+          docker compose --env-file deploy/local/.env -f deploy/local/docker-compose.yml --profile platform \
+            up -d --build --wait --wait-timeout 600 \
+            postgres rabbitmq redis keycloak config-server discovery-service ms-donors api-gateway
+
+      - name: Import the Keycloak realm
+        run: make keycloak-import
+
+      # Waits (up to 150 s) until the gateway reaches ms-donors through Eureka before the first test.
+      - name: End-to-end tests
+        run: make e2e
+
+      - name: Test summary
+        if: ${{ !cancelled() }}
+        run: .github/scripts/test-summary.sh failsafe "End-to-end tests (REST Assured through the API Gateway)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload JUnit reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: e2e-test-reports
+          path: e2e-tests/target/failsafe-reports/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      # Secrets of deploy/local/.env are replaced by *** in the output.
+      - name: Container status and logs
+        if: ${{ failure() }}
+        run: .github/scripts/e2e-logs.sh 200
+
+      - name: Stop the stack and delete its volumes
+        if: ${{ always() }}
+        run: docker compose --env-file deploy/local/.env -f deploy/local/docker-compose.yml --profile '*' down --volumes --remove-orphans
 
   # Docker image of every module with a Dockerfile + Trivy image scan (V-03). No push: CD (YAW-16) pushes to ECR.
   images:
