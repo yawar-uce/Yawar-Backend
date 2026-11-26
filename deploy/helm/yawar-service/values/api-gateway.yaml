@@ -1,0 +1,37 @@
+# Values of the shared chart yawar-service for the API Gateway (YAW-33). The chart arrives with YAW-13.
+# YAWAR_ENV (config profile) and RABBITMQ_VHOST are set per environment in api-gateway-<env>.yaml.
+# Public entry point: the Ingress sends /api and /ws here; everything else is denied by the gateway itself.
+nameOverride: api-gateway
+image:
+  repository: yawar/api-gateway        # ECR repository (Terraform, immutable tags, scan on push, keep 20)
+replicaCount: 1
+containerPort: 8000
+service:
+  port: 8000                           # ClusterIP behind the Ingress (/api/v1/**)
+probes:
+  liveness: /health/live
+  readiness: /health/ready             # Redis is deliberately not included: without it the gateway limits per pod
+env:
+  CONFIG_SERVER_URL: http://config-server:8888/config
+  CONFIG_IMPORT_MODE: ""               # empty = the configuration import is required in Kubernetes
+  CONFIG_FAIL_FAST: "true"             # fallback: a pod without configuration does not start (it is restarted)
+  RABBITMQ_HOST: rabbitmq              # Spring Cloud Bus only (configuration refresh)
+  REDIS_HOST: redis
+  EUREKA_HOST: discovery-service
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+  LOGGING_STRUCTURED_FORMAT_CONSOLE: ecs
+# Kubernetes Secret api-gateway-secrets: REDIS_PASSWORD, RABBITMQ_USER, RABBITMQ_PASSWORD,
+# CONFIG_SERVER_USER, CONFIG_SERVER_PASSWORD, EUREKA_USER, EUREKA_PASSWORD, KEYCLOAK_ISSUER_URI, KEYCLOAK_JWK_SET_URI
+# (per environment, never committed). CORS origins are not secret: yawar-config application-<env>.yml.
+envFromSecret: api-gateway-secrets
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  readOnlyRootFilesystem: true
+tmpVolume: /tmp
+resources:
+  requests:
+    cpu: 250m
+    memory: 256Mi
+  limits:
+    memory: 512Mi
