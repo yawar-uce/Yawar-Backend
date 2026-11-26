@@ -8,6 +8,7 @@ pom.xml, mvnw, .mvn/         root aggregator (packaging pom) that only lists the
 yawar-platform/              shared library: event envelope, outbox, inbox, correlation id
 config-server/ discovery-service/ api-gateway/   platform services (Sprint 2)
 ms-donors/ ms-appointments/ …   one top-level folder per microservice, named exactly as in Jira
+e2e-tests/                  API-level end-to-end tests (REST Assured), standalone, root profile `e2e`
 deploy/local/                docker compose for the local environment (.env.example, init scripts)
 deploy/kind/                 local Kubernetes cluster (kind)
 deploy/helm/yawar-service/   shared Helm chart
@@ -46,7 +47,13 @@ make test-it S=ms-donors     # integration tests with Testcontainers (*IT), Dock
 make acceptance S=ms-donors  # one test per Gherkin scenario (*AcceptanceIT, named hu01_sc1_…)
 make contract S=ms-donors    # OpenAPI/AsyncAPI contract tests (*ContractIT)
 make coverage S=ms-donors    # all tests + gate; prints line coverage and the JaCoCo HTML report path
+make e2e                     # API-level end-to-end tests against the running stack (see below)
 ```
+
+### End-to-end tests (`e2e-tests/`)
+REST Assured tests through the API Gateway against the real stack: `make up PROFILE=platform && make keycloak-import && make e2e`
+(details, variables and the reason for the temporary `yawar-e2e` Keycloak client in [`e2e-tests/README.md`](e2e-tests/README.md)).
+The module is standalone and only joins the aggregator under the `e2e` profile, so `./mvnw verify` at the root never needs the stack.
 
 A new module: create the folder (name exactly as in Jira) and add it to `<modules>` in the root `pom.xml`.
 Its pom must define `<skipTests>false</skipTests>` and `<skipUTs>${skipTests}</skipUTs>`, configure surefire with
@@ -60,8 +67,12 @@ Runs on every pull request and push to `dev`, `qa` and `production`:
 
 | Job | Steps | Gate |
 |---|---|---|
-| `ci` | gitleaks (whole history) → `./mvnw verify` (unit + Testcontainers integration tests of every module) → JaCoCo summary in the job page and `coverage-reports` artifact (test reports too when it fails) → Trivy filesystem scan | secrets, test failures, coverage < 70 % per module (V-01), HIGH/CRITICAL dependency with a fix (V-03) |
-| `images` | `.github/scripts/build-images.sh`: builds the image of every module with a Dockerfile (repository root as context when it copies `yawar-platform`) and scans it with Trivy | HIGH/CRITICAL image vulnerability with a fix (V-03) |
+| `security` | gitleaks (whole history), Trivy filesystem scan | secrets, HIGH/CRITICAL dependency with a fix (V-03) |
+| `unit` (UT) | `./mvnw verify -DskipITs -Djacoco.skip=true`: surefire `*Test` of every module; results table in the job page, JUnit XML artifact `unit-test-reports` | test failures |
+| `functional` (FT) | `./mvnw verify`: failsafe `*IT`, `*AcceptanceIT`, `*ContractIT` with Testcontainers (the cheap unit tests run again so JaCoCo merges both); results table, coverage table, artifacts `functional-test-reports` and `coverage-reports` | test failures, coverage < 70 % per module (V-01) |
+| `ci` | the required status check: passes only if `security`, `unit` and `functional` succeeded (it reports a failure, not "skipped", when one fails) | gate |
+| `e2e` | `docker compose` (profile `platform`, config from `deploy/local/e2e-config`, random secrets from `.github/scripts/e2e-env.sh`) → `make keycloak-import` → `make e2e`; logs with secrets redacted on failure; always `down -v`; artifact `e2e-test-reports` | end-to-end failures (reported on its own, not part of `ci` yet) |
+| `images` | `.github/scripts/build-images.sh`: builds the image of every module with a Dockerfile (repository root as context when it copies `yawar-platform`) and scans it with Trivy; runs after `ci` | HIGH/CRITICAL image vulnerability with a fix (V-03) |
 
 Images are tagged `yawar/<module>:<commit SHA>` and not pushed here: pushing to ECR and deploying is CD (YAW-16).
 Both Trivy scans use Trivy 0.70.0; every action is pinned by commit SHA and the gitleaks download is checksum-verified.
