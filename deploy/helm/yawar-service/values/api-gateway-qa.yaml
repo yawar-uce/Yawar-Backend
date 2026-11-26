@@ -1,0 +1,4 @@
+# api-gateway in qa (AWS account A): loads yawar-config application-qa.yml / api-gateway-qa.yml.
+env:
+  YAWAR_ENV: qa
+  RABBITMQ_VHOST: yawar-qa
