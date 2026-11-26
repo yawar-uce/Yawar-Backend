@@ -228,7 +228,10 @@ jobs:
 
       - name: Stop the stack and delete its volumes
         if: ${{ always() }}
-        run: docker compose --env-file deploy/local/.env -f deploy/local/docker-compose.yml --profile '*' down --volumes --remove-orphans
+        run: |
+          if [ -f deploy/local/.env ]; then
+            docker compose --env-file deploy/local/.env -f deploy/local/docker-compose.yml --profile '*' down --volumes --remove-orphans
+          fi
 
   # Docker image of every module with a Dockerfile + Trivy image scan (V-03). No push: CD (YAW-16) pushes to ECR.
   images:

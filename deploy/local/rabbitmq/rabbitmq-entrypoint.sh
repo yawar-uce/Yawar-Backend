@@ -11,7 +11,16 @@ ctl() {
 }
 
 (
-  until ctl -q await_startup >/dev/null 2>&1; do sleep 2; done
+  # Bounded (about 120 s): the broker itself keeps running if the vhosts cannot be prepared.
+  tries=0
+  until ctl -q await_startup >/dev/null 2>&1; do
+    tries=$((tries + 1))
+    if [ "$tries" -ge 60 ]; then
+      echo "yawar: RabbitMQ did not report startup within 120 s; vhosts NOT created (restart the container to retry)" >&2
+      exit 0
+    fi
+    sleep 2
+  done
   for vhost in ${YAWAR_VHOSTS:-}; do
     ctl -q add_vhost "$vhost" >/dev/null 2>&1 || true
     ctl -q update_vhost_metadata "$vhost" --default-queue-type quorum
