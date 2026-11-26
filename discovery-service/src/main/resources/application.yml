@@ -1,0 +1,56 @@
+# discovery-service (Eureka server, YAW-217). Complete on its own: it starts even if config-server is down
+# (optional import), and yawar-config/discovery-service.yml can override values per environment.
+server:
+  port: ${DISCOVERY_PORT:8761}
+
+spring:
+  application:
+    name: discovery-service
+  threads:
+    virtual:
+      enabled: true
+  security:
+    user:
+      name: ${EUREKA_USER}
+      password: ${EUREKA_PASSWORD}
+  config:
+    import: "optional:configserver:${CONFIG_SERVER_URL:http://localhost:8888/config}"
+  cloud:
+    config:
+      username: ${CONFIG_SERVER_USER:}
+      password: ${CONFIG_SERVER_PASSWORD:}
+      profile: ${YAWAR_ENV:dev}
+
+eureka:
+  instance:
+    # Single node: the server must recognise its own defaultZone as itself, so it advertises "localhost" and
+    # never its IP. With prefer-ip-address it would treat localhost as a peer and replicate to itself.
+    hostname: localhost
+    prefer-ip-address: false
+  client:
+    register-with-eureka: false   # single registry node per environment
+    fetch-registry: false
+    service-url:
+      # Its own address, without credentials, so no password ever appears in the peer list or the logs.
+      defaultZone: http://localhost:${server.port}/eureka/
+  server:
+    # Dev and kind pods come and go: without this the registry keeps dead instances ("self-preservation").
+    enable-self-preservation: ${EUREKA_SELF_PRESERVATION:true}
+    eviction-interval-timer-in-ms: 10000
+
+management:
+  endpoints:
+    web:
+      base-path: /
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: when-authorized
+      group:
+        live:
+          include: livenessState
+        ready:
+          include: readinessState
