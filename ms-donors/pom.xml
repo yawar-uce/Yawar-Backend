@@ -157,10 +157,11 @@
             <version>${json-schema-validator.version}</version>
             <scope>test</scope>
         </dependency>
+        <!-- Runtime, not test: springdoc needs it at startup (YAML api-docs), and a test scope here would override the
+             transitive runtime dependency and crash the packaged jar (NoClassDefFoundError YAMLFactory). -->
         <dependency>
             <groupId>tools.jackson.dataformat</groupId>
             <artifactId>jackson-dataformat-yaml</artifactId>
-            <scope>test</scope>
         </dependency>
     </dependencies>
 
