@@ -31,6 +31,9 @@ CLIENT = "yawar-web"
 REDIRECT = WEB + "/callback"
 ROLES = ["donor", "recruitment", "logistics", "hospital", "administrator", "auditor", "agent"]
 
+CONSENT_REQUIRED = "Necesitamos tu consentimiento para tratar tus datos (LOPDP) y crear tu cuenta."
+DUPLICATE_EMAIL = "Este correo ya está registrado. Inicia sesión o recupera tu contraseña."
+
 results = []
 
 
@@ -249,6 +252,9 @@ def _registration_checks(token, email):
     _, _, page = request(action, fields, opener=follow)
     check("registration without consent is refused", "privacy_consent" in page and "verify" not in page.lower()
           and "verific" not in page.lower(), page[:120])
+    _, _, none = admin(f"/users?email={urllib.parse.quote(email)}&exact=true", token)
+    check("hu01_sc3_without_consent_no_account_and_reason",
+          not none and CONSENT_REQUIRED in html.unescape(page), " ".join(re.findall(r"(?:Necesit|Este correo|obligatorio|Please|exist|registrad)[^<]{0,120}", html.unescape(page))))
 
     action = form_action(page)
     if not action:
@@ -273,6 +279,19 @@ def _registration_checks(token, email):
         check("registered user stored the consent", (u.get("attributes") or {}).get("privacy_consent") == ["accepted"])
         _, _, roles = admin(f"/users/{u['id']}/role-mappings/realm/composite", token)
         check("registered user is a donor", "donor" in {r["name"] for r in roles})
+        check("hu01_sc1_account_created_with_donor_role_and_verification_email",
+              "donor" in {r["name"] for r in roles} and found and not u.get("emailVerified"))
+
+        # Scenario 2: the same email again (another browser session) suggests sign-in or password recovery.
+        again, _ = browser()
+        _, _, login = request(auth_url(pkce_pair()[1]), opener=again)
+        m = re.search(r'href="([^"]*login-actions/registration[^"]*)"', login)
+        _, _, form = request(urllib.parse.urljoin(KC, html.unescape(m.group(1))), opener=again)
+        _, _, page = request(form_action(form), {"email": email, "password": password, "password-confirm": password,
+                                                  "privacy_consent": "accepted"}, opener=again)
+        _, _, same = admin(f"/users?email={urllib.parse.quote(email)}&exact=true", token)
+        check("hu01_sc2_duplicate_email_suggests_signin_or_recovery",
+              DUPLICATE_EMAIL in html.unescape(page) and len(same) == 1, " ".join(re.findall(r"(?:Necesit|Este correo|obligatorio|Please|exist|registrad)[^<]{0,120}", html.unescape(page))))
 
 
 if __name__ == "__main__":
