@@ -1,0 +1,11 @@
+# user;group;givenName;sn;site     (site -> AD attribute physicalDeliveryOfficeName)
+yw.admin01;ADMINISTRATOR;Admin;Yawar;quito-hcam
+yw.auditor01;AUDITOR;Auditor;Yawar;quito-hee
+yw.recruit01;RECRUITMENT;Recruiter;One;quito-hcam
+yw.recruit02;RECRUITMENT;Recruiter;Two;quito-hee
+yw.recruit03;RECRUITMENT;Recruiter;Three;guayaquil-htmc
+yw.logistics01;LOGISTICS;Logistics;One;quito-hcam
+yw.logistics02;LOGISTICS;Logistics;Two;quito-hee
+yw.logistics03;LOGISTICS;Logistics;Three;guayaquil-htmc
+yw.hospital01;HOSPITAL;Hospital;One;quito-hcam
+yw.hospital02;HOSPITAL;Hospital;Two;guayaquil-htmc

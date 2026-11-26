@@ -1,0 +1,8 @@
+.secrets
+*.csv
+*.mk
+*.md
+*.sh
+!entrypoint.sh
+Dockerfile
+.dockerignore

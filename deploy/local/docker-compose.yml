@@ -321,9 +321,34 @@ services:
       retries: 20
       start_period: 60s
 
+  # Samba AD domain controller yawar.lab (YAW-30, ADR-042). Profile `ad`: `make up PROFILE=ad && make ad-seed && make ad-test`.
+  # Keycloak (YAW-32) reaches it as ldaps://samba-ad:636 on the compose network; the lab CA is exported by `make ad-cert`.
+  samba-ad:
+    profiles: ["ad"]
+    build:
+      context: ../ad
+    image: yawar/samba-ad:4.17-debian12.13
+    restart: unless-stopped
+    hostname: samba-ad
+    environment:
+      AD_ADMIN_PASSWORD: ${AD_ADMIN_PASSWORD:?set AD_ADMIN_PASSWORD in deploy/local/.env}
+      AD_REALM: ${AD_REALM:-YAWAR.LAB}
+      AD_DOMAIN: ${AD_DOMAIN:-YAWAR}
+    volumes:
+      - samba-ad-data:/var/lib/samba
+    ports:
+      - "127.0.0.1:${AD_LDAPS_PORT:-636}:636"
+    healthcheck:
+      test: ["CMD", "bash", "-c", "samba-tool domain info 127.0.0.1 >/dev/null 2>&1 && exec 3<>/dev/tcp/127.0.0.1/636"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 40s
+
 volumes:
   postgres-data:
   rabbitmq-data:
   redis-data:
   mailpit-data:
   otel-lgtm-data:
+  samba-ad-data:

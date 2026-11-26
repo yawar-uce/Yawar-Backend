@@ -30,3 +30,6 @@ deploy/local/.secrets/
 # Python bytecode (deploy/keycloak/test_realm.py)
 __pycache__/
 *.pyc
+
+# Samba AD generated passwords and CA export (YAW-30)
+deploy/ad/.secrets/

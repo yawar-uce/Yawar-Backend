@@ -68,3 +68,4 @@ psql: $(ENV_FILE) ## Open psql as the admin user (DB=<database>, SQL='<command>'
 include build.mk
 include deploy/kind/kind.mk
 include deploy/keycloak/keycloak.mk
+include deploy/ad/ad.mk
