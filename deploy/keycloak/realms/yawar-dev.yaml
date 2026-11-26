@@ -78,6 +78,29 @@ roles:
       description: Auditor (read-only access logs and traceability)
     - name: agent
       description: Service role of the AI agent (MCP tools)
+    # Staff roles come from AD groups (HU-32, ADR-042): the LDAP role mapper reads the groups under OU=Grupos as realm
+    # roles named GG-YAW-*, and each is a composite of the Yawar role it stands for. Tokens never carry the GG-*
+    # roles (not in the scope mappings of yawar-web), only the effective Yawar role.
+    - name: GG-YAW-ADMINISTRATOR
+      description: AD group GG-YAW-ADMINISTRATOR (federation)
+      composite: true
+      composites: {realm: [administrator]}
+    - name: GG-YAW-AUDITOR
+      description: AD group GG-YAW-AUDITOR (federation)
+      composite: true
+      composites: {realm: [auditor]}
+    - name: GG-YAW-RECRUITMENT
+      description: AD group GG-YAW-RECRUITMENT (federation)
+      composite: true
+      composites: {realm: [recruitment]}
+    - name: GG-YAW-LOGISTICS
+      description: AD group GG-YAW-LOGISTICS (federation)
+      composite: true
+      composites: {realm: [logistics]}
+    - name: GG-YAW-HOSPITAL
+      description: AD group GG-YAW-HOSPITAL (federation)
+      composite: true
+      composites: {realm: [hospital]}
     # Default role of the realm: what every new user (self-registered or Google) receives.
     - name: default-roles-yawar-dev
       description: Roles of every new user
@@ -123,6 +146,18 @@ clients:
           included.custom.audience: yawar-api
           access.token.claim: "true"
           id.token.claim: "false"
+      # Site of the staff member (AD attribute physicalDeliveryOfficeName, HU-32): claim `site` in the access token, e.g.
+      # quito-hcam. Read from AD, not editable in Keycloak. Absent for donors.
+      - name: staff-site
+        protocol: openid-connect
+        protocolMapper: oidc-usermodel-attribute-mapper
+        config:
+          user.attribute: site
+          claim.name: site
+          jsonType.label: String
+          access.token.claim: "true"
+          id.token.claim: "false"
+          userinfo.token.claim: "false"
       # ms-donors records the consent (purpose, policy version, timestamp) when it first sees this claim on
       # GET /donors/me; it is the system of record for consents and revocations (no call to Keycloak, C-02).
       - name: privacy-consent
@@ -231,6 +266,108 @@ authenticatorConfig:
 
 # --- User profile: privacy consent is required at sign-up and in "review profile" after Google login ---
 components:
+  # --- Staff accounts from Active Directory (HU-32, ADR-042, RF-04/RF-05): LDAPS, READ_ONLY (no write-back, no
+  # password change from Keycloak). Disabled (enabled=false) unless KC_AD_ENABLED=true, so the realm imports without
+  # AD. Bind account: the read-only svc.keycloak (make ad-seed); qa points KC_AD_URL / KC_AD_BIND_* elsewhere.
+  org.keycloak.storage.UserStorageProvider:
+    - name: yawar-ad
+      providerId: ldap
+      subComponents:
+        org.keycloak.storage.ldap.mappers.LDAPStorageMapper:
+            - name: username
+              providerId: user-attribute-ldap-mapper
+              config:
+                user.model.attribute: ["username"]
+                ldap.attribute: ["sAMAccountName"]
+                read.only: ["true"]
+                always.read.value.from.ldap: ["false"]
+                is.mandatory.in.ldap: ["true"]
+                attribute.force.default: ["false"]
+            - name: first name
+              providerId: user-attribute-ldap-mapper
+              config:
+                user.model.attribute: ["firstName"]
+                ldap.attribute: ["givenName"]
+                read.only: ["true"]
+                always.read.value.from.ldap: ["false"]
+                is.mandatory.in.ldap: ["false"]
+                attribute.force.default: ["false"]
+            - name: last name
+              providerId: user-attribute-ldap-mapper
+              config:
+                user.model.attribute: ["lastName"]
+                ldap.attribute: ["sn"]
+                read.only: ["true"]
+                always.read.value.from.ldap: ["false"]
+                is.mandatory.in.ldap: ["false"]
+                attribute.force.default: ["false"]
+            - name: email
+              providerId: user-attribute-ldap-mapper
+              config:
+                user.model.attribute: ["email"]
+                ldap.attribute: ["mail"]
+                read.only: ["true"]
+                always.read.value.from.ldap: ["false"]
+                is.mandatory.in.ldap: ["false"]
+                attribute.force.default: ["false"]
+            - name: site
+              providerId: user-attribute-ldap-mapper
+              config:
+                user.model.attribute: ["site"]
+                ldap.attribute: ["physicalDeliveryOfficeName"]
+                read.only: ["true"]
+                always.read.value.from.ldap: ["true"]
+                is.mandatory.in.ldap: ["false"]
+                attribute.force.default: ["false"]
+            - name: MSAD account controls
+              providerId: msad-user-account-control-mapper
+              config:
+                ldap.password.policy.hints.enabled: ["false"]
+            - name: staff roles
+              providerId: role-ldap-mapper
+              config:
+                roles.dn: ["OU=Grupos,OU=Yawar,DC=yawar,DC=lab"]
+                role.name.ldap.attribute: ["cn"]
+                role.object.classes: ["group"]
+                membership.ldap.attribute: ["member"]
+                membership.attribute.type: ["DN"]
+                membership.user.ldap.attribute: ["sAMAccountName"]
+                roles.ldap.filter: ["(cn=GG-YAW-*)"]
+                mode: ["READ_ONLY"]
+                user.roles.retrieve.strategy: ["LOAD_ROLES_BY_MEMBER_ATTRIBUTE"]
+                memberof.ldap.attribute: ["memberOf"]
+                use.realm.roles.mapping: ["true"]
+      config:
+        enabled: ["$(env:KC_AD_ENABLED:-false)"]
+        priority: ["0"]
+        vendor: ["ad"]
+        editMode: ["READ_ONLY"]
+        connectionUrl: ["$(env:KC_AD_URL:-ldaps://samba-ad:636)"]
+        authType: ["simple"]
+        bindDn: ["$(env:KC_AD_BIND_DN:-not-configured)"]
+        bindCredential: ["$(env:KC_AD_BIND_PASSWORD:-not-configured)"]
+        usersDn: ["OU=Personal,OU=Yawar,DC=yawar,DC=lab"]
+        usernameLDAPAttribute: ["sAMAccountName"]
+        rdnLDAPAttribute: ["cn"]
+        uuidLDAPAttribute: ["objectGUID"]
+        userObjectClasses: ["person, organizationalPerson, user"]
+        searchScope: ["1"]
+        useTruststoreSpi: ["always"]
+        startTls: ["false"]
+        connectionPooling: ["true"]
+        connectionTimeout: ["5000"]
+        readTimeout: ["10000"]
+        pagination: ["true"]
+        batchSizeForSync: ["1000"]
+        importEnabled: ["true"]
+        syncRegistrations: ["false"]
+        trustEmail: ["true"]
+        validatePasswordPolicy: ["false"]
+        fullSyncPeriod: ["-1"]
+        changedSyncPeriod: ["-1"]
+        cachePolicy: ["DEFAULT"]
+        allowKerberosAuthentication: ["false"]
+        useKerberosForPasswordAuthentication: ["false"]
   org.keycloak.userprofile.UserProfileProvider:
     - providerId: declarative-user-profile
       subComponents: {}
@@ -254,6 +391,8 @@ components:
                 {"name": "lastName", "displayName": "${lastName}",
                  "validations": {"length": {"max": 255}, "person-name-prohibited-characters": {}},
                  "permissions": {"view": ["admin", "user"], "edit": ["admin", "user"]}, "multivalued": false},
+                {"name": "site", "displayName": "Site",
+                 "permissions": {"view": ["admin"], "edit": []}, "multivalued": false},
                 {"name": "privacy_consent", "displayName": "${privacyConsent}",
                  "validations": {"options": {"options": ["accepted"], "error-message": "${privacyConsentRequired}"}},
                  "annotations": {"inputType": "multiselect-checkboxes",

@@ -89,6 +89,11 @@ services:
       KC_METRICS_ENABLED: "true"
       KC_HTTP_PORT: "8080"
       KC_HOSTNAME_STRICT: "false"
+      # Trust the lab CA of Samba AD (YAW-32): every PEM file in this directory. The directory (not a single file)
+      # is mounted so Keycloak starts the same when `make ad-cert` has not run yet (empty directory = no extra CA).
+      KC_TRUSTSTORE_PATHS: /opt/keycloak/ad-ca
+    volumes:
+      - ../ad/ca:/opt/keycloak/ad-ca:ro
     ports:
       - "127.0.0.1:${KEYCLOAK_PORT:-8080}:8080"
     depends_on:
@@ -122,6 +127,11 @@ services:
       KC_GOOGLE_ENABLED: ${KC_GOOGLE_ENABLED:-false}
       KC_GOOGLE_CLIENT_ID: ${KC_GOOGLE_CLIENT_ID:-not-configured}
       KC_GOOGLE_CLIENT_SECRET: ${KC_GOOGLE_CLIENT_SECRET:-not-configured}
+      # Active Directory federation (YAW-32); disabled unless KC_AD_ENABLED=true in .env.
+      KC_AD_ENABLED: ${KC_AD_ENABLED:-false}
+      KC_AD_URL: ${KC_AD_URL:-ldaps://samba-ad:636}
+      KC_AD_BIND_DN: ${KC_AD_BIND_DN:-CN=svc.keycloak,OU=Servicios,OU=Yawar,DC=yawar,DC=lab}
+      KC_AD_BIND_PASSWORD: ${KC_AD_BIND_PASSWORD:-not-configured}
     volumes:
       - ../keycloak/realms:/config:ro
     depends_on:
