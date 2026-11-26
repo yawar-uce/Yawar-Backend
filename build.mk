@@ -44,8 +44,8 @@ acceptance: ## Functional/acceptance tests, one per Gherkin scenario
 	$(call mvn_scoped,verify $(IT_FLAGS) '-Dit.test=*AcceptanceIT')
 
 .PHONY: contract
-contract: ## Contract tests against OpenAPI/AsyncAPI (V-02)
-	$(call mvn_scoped,verify $(IT_FLAGS) '-Dit.test=*ContractIT')
+contract: ## Contract tests against OpenAPI/AsyncAPI (V-02); CONTRACT_UPDATE=true rewrites docs/openapi/<ms>.yaml
+	$(call mvn_scoped,verify $(IT_FLAGS) '-Dit.test=*ContractIT' $(if $(CONTRACT_UPDATE),-Dcontract.update=true))
 
 .PHONY: coverage
 coverage: ## All tests + JaCoCo gate; prints line coverage and the HTML report path per module

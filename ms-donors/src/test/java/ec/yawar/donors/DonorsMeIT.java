@@ -3,6 +3,8 @@ package ec.yawar.donors;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -58,6 +60,13 @@ class DonorsMeIT extends AbstractDonorsIT {
         mvc.perform(get("/api/v1/donors/me").with(jwt().jwt(j -> j.subject(UUID.randomUUID().toString())
                         .claim("privacy_consent", List.of("accepted")))
                         .authorities(new SimpleGrantedAuthority("ROLE_hospital"))))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isForbidden()).andExpect(content().string(""));
+    }
+
+    @Test
+    void withoutATokenItIsUnauthorizedWithoutBody() throws Exception {
+        // Spring Security answers 401/403 itself: empty body, not problem+json (the OpenAPI says so).
+        mvc.perform(get("/api/v1/donors/me")).andExpect(status().isUnauthorized())
+                .andExpect(header().exists("WWW-Authenticate")).andExpect(content().string(""));
     }
 }
