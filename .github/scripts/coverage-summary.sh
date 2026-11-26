@@ -16,7 +16,7 @@ if [ ${#csvs[@]} -eq 0 ]; then
   echo "No coverage reports found."
   exit 0
 fi
-modules=$(for pom in */pom.xml; do dirname "$pom"; done | wc -l)
+modules=$(for pom in */pom.xml; do dirname "$pom"; done | grep -vx e2e-tests | wc -l)
 echo "_${#csvs[@]} of ${modules} modules produced a coverage report._"
 echo
 echo "| Module | Line coverage | Lines covered / total |"
