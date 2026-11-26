@@ -82,6 +82,29 @@ jobs:
           ignore-unfixed: true
           skip-dirs: '**/target'
 
+  # Lint of the committed API contracts (RNF-10, V-02). That the running services match them is checked by the
+  # *ContractIT tests of the `ci` job.
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      ASYNCAPI_METRICS: 'false'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
+        with:
+          node-version: '22.12.0'
+
+      - name: Lint OpenAPI (Redocly CLI)
+        run: npx --yes @redocly/cli@2.83.0 lint docs/openapi/*.yaml --max-problems=0
+
+      - name: Validate AsyncAPI (AsyncAPI CLI)
+        run: |
+          for f in docs/asyncapi/*.yaml; do
+            npx --yes @asyncapi/cli@6.3.1 validate "$f" --fail-severity=info
+          done
+
   # Docker image of every module with a Dockerfile + Trivy image scan (V-03). No push: CD (YAW-16) pushes to ECR.
   images:
     needs: ci

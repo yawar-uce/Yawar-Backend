@@ -22,6 +22,7 @@
         <springdoc.version>3.2.1</springdoc.version>
         <mapstruct.version>1.6.3</mapstruct.version>
         <archunit.version>1.5.1</archunit.version>
+        <json-schema-validator.version>3.0.9</json-schema-validator.version>
         <jacoco.version>0.8.16</jacoco.version>
         <!-- -DskipTests skips every test; -DskipUTs=true (make test-it / acceptance) skips only unit tests.
              skipUTs must default to skipTests: surefire's explicit <skipTests> would otherwise ignore -DskipTests. -->
@@ -147,6 +148,18 @@
             <groupId>com.tngtech.archunit</groupId>
             <artifactId>archunit-junit5</artifactId>
             <version>${archunit.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <!-- 3.x is built on Jackson 3 (tools.jackson), like Spring Boot 4: used by the AsyncAPI payload contract test -->
+        <dependency>
+            <groupId>com.networknt</groupId>
+            <artifactId>json-schema-validator</artifactId>
+            <version>${json-schema-validator.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>tools.jackson.dataformat</groupId>
+            <artifactId>jackson-dataformat-yaml</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>

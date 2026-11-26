@@ -1,0 +1,243 @@
+asyncapi: 3.1.0
+info:
+  title: ms-donors events
+  version: 0.1.0
+  description: |
+    Domain events published by ms-donors through the transactional outbox (yawar-platform) to the RabbitMQ topic
+    exchange `yawar.events` (YAW-DOC-07 §8). Every message is wrapped in the Yawar envelope; the `payload` field
+    carries only identifiers and consent metadata. **No personal data** (name, email, phone, blood type, Keycloak
+    user id) ever travels in an event (LOPDP).
+
+    Routing keys follow `<context>.<entity>.<fact>`. Messages marked `x-status: planned` belong to stories that are
+    not implemented yet (HU-03, HU-05) and may change until they ship; additive changes only afterwards, an
+    incompatible change creates `schemaVersion: 2` next to the old one.
+
+    `ms-donors` also consumes `DonationRecorded` (ms-appointments) through the inbox; it is documented in the
+    contract of the producer.
+  x-implemented-by: yawar-platform outbox relay (publisher confirms, FOR UPDATE SKIP LOCKED)
+servers:
+  rabbitmq:
+    host: rabbitmq:5672
+    protocol: amqp
+    protocolVersion: 0-9-1
+    description: RabbitMQ 4.2, vhost `yawar-dev` / `yawar-qa` / `yawar` per environment.
+defaultContentType: application/json
+channels:
+  donorRegistered:
+    address: donors.donor.registered
+    description: A donor profile was created on the first `GET /api/v1/donors/me` (HU-01).
+    servers:
+      - $ref: '#/servers/rabbitmq'
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: yawar.events
+          type: topic
+          durable: true
+    messages:
+      DonorRegistered:
+        $ref: '#/components/messages/DonorRegistered'
+  profileCompleted:
+    address: donors.profile.completed
+    description: The donor completed the profile data (HU-03). Planned.
+    servers:
+      - $ref: '#/servers/rabbitmq'
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: yawar.events
+          type: topic
+          durable: true
+    messages:
+      ProfileCompleted:
+        $ref: '#/components/messages/ProfileCompleted'
+  consentRevoked:
+    address: donors.consent.revoked
+    description: The donor revoked a consent (HU-05); campaigns and notifications exclude the donor at once. Planned.
+    servers:
+      - $ref: '#/servers/rabbitmq'
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: yawar.events
+          type: topic
+          durable: true
+    messages:
+      ConsentRevoked:
+        $ref: '#/components/messages/ConsentRevoked'
+operations:
+  publishDonorRegistered:
+    action: send
+    summary: Publish DonorRegistered (consumers ms-traceability, ms-analytics)
+    channel:
+      $ref: '#/channels/donorRegistered'
+    messages:
+      - $ref: '#/channels/donorRegistered/messages/DonorRegistered'
+  publishProfileCompleted:
+    action: send
+    summary: Publish ProfileCompleted (consumers ms-campaigns, ms-traceability). Planned.
+    x-status: planned
+    channel:
+      $ref: '#/channels/profileCompleted'
+    messages:
+      - $ref: '#/channels/profileCompleted/messages/ProfileCompleted'
+  publishConsentRevoked:
+    action: send
+    summary: Publish ConsentRevoked (consumers ms-campaigns, ms-notifications). Planned.
+    x-status: planned
+    channel:
+      $ref: '#/channels/consentRevoked'
+    messages:
+      - $ref: '#/channels/consentRevoked/messages/ConsentRevoked'
+components:
+  messages:
+    DonorRegistered:
+      name: DonorRegistered
+      title: Donor registered
+      summary: A donor profile and its first consent were created.
+      x-status: implemented
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Envelope'
+          - type: object
+            properties:
+              eventType:
+                const: donors.donor.registered
+              payload:
+                $ref: '#/components/schemas/DonorRegistered'
+    ProfileCompleted:
+      name: ProfileCompleted
+      title: Profile completed
+      summary: The donor completed the profile data.
+      x-status: planned
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Envelope'
+          - type: object
+            properties:
+              eventType:
+                const: donors.profile.completed
+              payload:
+                $ref: '#/components/schemas/ProfileCompleted'
+    ConsentRevoked:
+      name: ConsentRevoked
+      title: Consent revoked
+      summary: The donor revoked a consent.
+      x-status: planned
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/Envelope'
+          - type: object
+            properties:
+              eventType:
+                const: donors.consent.revoked
+              payload:
+                $ref: '#/components/schemas/ConsentRevoked'
+  schemas:
+    Envelope:
+      type: object
+      description: Yawar message envelope (YAW-DOC-07 §8.3), class ec.yawar.platform.envelope.Envelope.
+      additionalProperties: false
+      required: [eventId, eventType, aggregateId, aggregateVersion, occurredAt, schemaVersion, correlationId, producer, payload]
+      properties:
+        eventId:
+          type: string
+          format: uuid
+          description: Unique id; consumers deduplicate with it (inbox).
+        eventType:
+          type: string
+          description: Routing key of the event.
+        aggregateId:
+          type: string
+          description: Id of the aggregate that produced the event (the donor id).
+        aggregateVersion:
+          type: integer
+          minimum: 0
+          description: Version of the aggregate after the change; projections ignore older ones.
+        occurredAt:
+          type: string
+          format: date-time
+        schemaVersion:
+          type: integer
+          minimum: 1
+          description: Payload schema version, 1 until an incompatible change.
+        correlationId:
+          type: string
+          description: Id of the originating request, kept across services.
+        causationId:
+          type: [string, 'null']
+          description: Id of the message or request that caused this one.
+        traceparent:
+          type: [string, 'null']
+          description: W3C trace context of the producing span.
+        producer:
+          type: string
+          const: ms-donors
+        payload:
+          type: object
+    DonorRegistered:
+      type: object
+      description: Payload of donors.donor.registered. Class ec.yawar.donors.domain.DonorRegistered. IDs and consent metadata only.
+      additionalProperties: false
+      required: [donorId, registrationSource, consentPurposes, policyVersion, registeredAt]
+      properties:
+        donorId:
+          type: string
+          format: uuid
+        registrationSource:
+          type: string
+          enum: [PASSWORD, GOOGLE]
+          description: How the account was created in the identity provider.
+        consentPurposes:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/ConsentPurpose'
+        policyVersion:
+          type: string
+          description: Version of the privacy policy that was accepted.
+          examples: ['2026-1']
+        registeredAt:
+          type: string
+          format: date-time
+    ProfileCompleted:
+      type: object
+      description: Payload of donors.profile.completed (planned, HU-03). Field names only, never their values.
+      additionalProperties: false
+      required: [donorId, completedFields, completedAt]
+      properties:
+        donorId:
+          type: string
+          format: uuid
+        completedFields:
+          type: array
+          items:
+            type: string
+          description: Names of the profile fields that were completed, not their values.
+        completedAt:
+          type: string
+          format: date-time
+    ConsentRevoked:
+      type: object
+      description: Payload of donors.consent.revoked (planned, HU-05).
+      additionalProperties: false
+      required: [donorId, purpose, revokedAt]
+      properties:
+        donorId:
+          type: string
+          format: uuid
+        purpose:
+          $ref: '#/components/schemas/ConsentPurpose'
+        revokedAt:
+          type: string
+          format: date-time
+    ConsentPurpose:
+      type: string
+      enum: [DATA_PROCESSING]
+      description: Purpose the donor consented to (LOPDP).

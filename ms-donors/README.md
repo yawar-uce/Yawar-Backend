@@ -23,6 +23,21 @@ curl -i http://localhost:8000/api/v1/donors/me -H "Authorization: Bearer $ACCESS
 curl -i http://localhost:8000/api/v1/donors/me -H "Authorization: Bearer $ACCESS_TOKEN" -H 'If-None-Match: "0"'   # 304
 ```
 
+## Contracts (RNF-10, V-02)
+| Contract | File | Checked by |
+|---|---|---|
+| OpenAPI 3 (REST; consents are returned inside `GET /donors/me`) | `docs/openapi/ms-donors.yaml` | `DonorsOpenApiContractIT` compares it with the served `/v3/api-docs`; Redocly lint in CI |
+| AsyncAPI 3 (`yawar.events`: `donors.donor.registered`; planned `donors.profile.completed`, `donors.consent.revoked`) | `docs/asyncapi/ms-donors.yaml` | `DonorRegisteredSchemaContractIT` validates the real outbox payload against its schema; AsyncAPI CLI validate in CI |
+
+```bash
+make contract S=ms-donors                          # run the contract tests (Docker must be running)
+make contract S=ms-donors CONTRACT_UPDATE=true     # after an intended API change: rewrite docs/openapi/ms-donors.yaml, then commit it
+npx --yes @redocly/cli@2.83.0 lint docs/openapi/ms-donors.yaml --max-problems=0   # same lint as CI
+npx --yes @asyncapi/cli@6.3.1 validate docs/asyncapi/ms-donors.yaml
+```
+On a mismatch the served spec is written to `ms-donors/target/openapi-actual.yaml`. The AsyncAPI file is edited by hand.
+Swagger UI: `http://localhost:8081/swagger-ui/index.html` (disabled in Kubernetes).
+
 ## Layout (hexagonal)
 ```
 src/main/java/ec/yawar/donors/
