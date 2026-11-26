@@ -136,14 +136,15 @@ class MsDonorsApplicationIT {
 
     @Test
     void donorTokenPassesSecurity() throws Exception {
-        // No controller yet (YAW-37): the request gets through security and ends in 404, not 401/403.
-        mvc.perform(get("/api/v1/donors/me").with(jwt().authorities(new SimpleGrantedAuthority("ROLE_donor"))))
-                .andExpect(status().isNotFound());
+        // The request gets through security and reaches the controller (no consent claim: 422, not 401/403).
+        mvc.perform(get("/api/v1/donors/me").with(jwt().jwt(j -> j.subject("6f1c2a5e-0000-4000-8000-000000000002"))
+                        .authorities(new SimpleGrantedAuthority("ROLE_donor"))))
+                .andExpect(status().isUnprocessableContent());
     }
 
     @Test
     void overRealHttpADonorTokenGetsTheEndpointStatusNotAForbiddenErrorPage() {
-        // Regression: the 404 is rendered by an ERROR dispatch, which must not be denied (it was a 403).
+        // Regression: error responses are rendered by an ERROR dispatch, which must not be denied (it was a 403).
         when(jwtDecoder.decode("donor-token")).thenReturn(Jwt.withTokenValue("donor-token").header("alg", "RS256")
                 .subject("6f1c2a5e-0000-4000-8000-000000000001").issuedAt(Instant.now())
                 .expiresAt(Instant.now().plusSeconds(300))
@@ -154,7 +155,7 @@ class MsDonorsApplicationIT {
                 .get().uri("/api/v1/donors/me").header("Authorization", "Bearer donor-token")
                 .retrieve().toBodilessEntity().getStatusCode().value();
 
-        assertThat(status).isEqualTo(404);
+        assertThat(status).isEqualTo(422);
     }
 
     @Test
