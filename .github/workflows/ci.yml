@@ -9,35 +9,100 @@ on:
 permissions:
   contents: read
 
+# A new push to a pull request cancels its previous run; runs on dev, qa and production are never cancelled
+# (every commit there must end with a ci/images result, because images and release tags point at its SHA).
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  # Secrets, build, unit + integration tests (Testcontainers), coverage gate and dependency scan.
   ci:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
         with:
           fetch-depth: 0
 
       - name: Secret scan with gitleaks
+        env:
+          GITLEAKS_VERSION: 8.30.1
+          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
         run: |
-          curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz | tar -xz gitleaks
+          curl -sSLo gitleaks.tar.gz "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf gitleaks.tar.gz gitleaks
           ./gitleaks git . --redact --no-banner --verbose
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3  # v4
         with:
           distribution: temurin
           java-version: '21'
           cache: maven
 
       # One reactor build from the root aggregator pom: yawar-platform first, then every service.
-      # verify = unit tests + integration tests (Testcontainers, Docker is available on ubuntu-latest)
-      # + JaCoCo report and the 70 % gate of each module (V-01).
+      # verify = unit tests (surefire) + integration tests (failsafe, Testcontainers: Docker is available on
+      # ubuntu-latest) + JaCoCo report and the 70 % gate of each module (V-01).
       - name: Build and test every module (coverage ≥ 70 %, V-01)
         run: ./mvnw -B -ntp verify
 
+      - name: Coverage summary
+        if: ${{ !cancelled() }}
+        run: .github/scripts/coverage-summary.sh >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload coverage reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: coverage-reports
+          path: '*/target/site/jacoco/'
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Upload test reports (on failure)
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: test-reports
+          path: |
+            */target/surefire-reports/
+            */target/failsafe-reports/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      # trivy-action v0.36.0 runs Trivy 0.70.0, the same version as the image scan (build-images.sh).
       - name: Trivy filesystem scan (V-03)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
+          version: v0.70.0
           scan-type: fs
           severity: HIGH,CRITICAL
           exit-code: '1'
           ignore-unfixed: true
+          skip-dirs: '**/target'
+
+  # Docker image of every module with a Dockerfile + Trivy image scan (V-03). No push: CD (YAW-16) pushes to ECR.
+  images:
+    needs: ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+
+      - name: Day of the Trivy database cache
+        id: day
+        run: echo "day=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
+
+      # One cache entry per day (the database is updated daily), restored from the latest one otherwise.
+      - name: Cache Trivy vulnerability database
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
+        with:
+          path: ~/.cache/trivy
+          key: trivy-db-${{ runner.os }}-${{ steps.day.outputs.day }}
+          restore-keys: trivy-db-${{ runner.os }}-
+
+      - name: Build images and scan them with Trivy
+        env:
+          TAG: ${{ github.sha }}
+        run: .github/scripts/build-images.sh
