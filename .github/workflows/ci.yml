@@ -228,7 +228,10 @@ jobs:
 
       - name: Stop the stack and delete its volumes
         if: ${{ always() }}
-        run: docker compose --env-file deploy/local/.env -f deploy/local/docker-compose.yml --profile '*' down --volumes --remove-orphans
+        run: |
+          if [ -f deploy/local/.env ]; then
+            docker compose --env-file deploy/local/.env -f deploy/local/docker-compose.yml --profile '*' down --volumes --remove-orphans
+          fi
 
   # Load (YAW-48, V-05): k6 smoke (20 users x 1 min) on GET /api/v1/donors/me through the gateway, against its own
   # copy of the e2e stack. Fails on p95 >= 3 s or errors >= 1 %. Reported on its own, not part of the gate.
