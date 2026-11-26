@@ -33,3 +33,7 @@ __pycache__/
 
 # Samba AD generated passwords and CA export (YAW-30)
 deploy/ad/.secrets/
+deploy/ad/.secrets
+
+# Lab CA exported by `make ad-cert` (public certificate, but specific to each lab volume)
+deploy/ad/ca/*.pem
