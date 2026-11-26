@@ -395,7 +395,7 @@ components:
                  "permissions": {"view": ["admin"], "edit": []}, "multivalued": false},
                 {"name": "privacy_consent", "displayName": "${privacyConsent}",
                  "validations": {"options": {"options": ["accepted"], "error-message": "${privacyConsentRequired}"}},
-                 "annotations": {"inputType": "multiselect-checkboxes",
+                 "annotations": {"inputType": "select-radiobuttons",
                                  "inputOptionLabels": {"accepted": "${privacyConsentAccepted}"}},
                  "required": {"roles": ["user"]},
                  "permissions": {"view": ["admin", "user"], "edit": ["admin", "user"]}, "multivalued": true}
