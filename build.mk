@@ -59,3 +59,14 @@ coverage: ## All tests + JaCoCo gate; prints line coverage and the HTML report p
 .PHONY: _verify
 _verify:
 	$(call mvn_scoped,verify)
+
+##@ End-to-end tests (YAW-47, need the running stack)
+
+# Runs e2e-tests/ against the stack of `make up PROFILE=platform` + `make keycloak-import`. The Keycloak admin
+# credentials and ports come from deploy/local/.env (GATEWAY_URL / KEYCLOAK_URL / REALM override the defaults).
+.PHONY: e2e
+e2e: $(ENV_FILE) ## API-level E2E tests through the API Gateway (stack up and realm imported; see e2e-tests/README.md)
+	@set -a && . ./$(ENV_FILE) && set +a && \
+	  GATEWAY_URL=$${GATEWAY_URL:-http://localhost:$${GATEWAY_PORT:-8000}} \
+	  KEYCLOAK_URL=$${KEYCLOAK_URL:-http://localhost:$${KEYCLOAK_PORT:-8080}} \
+	  $(MVN) -f e2e-tests/pom.xml verify
