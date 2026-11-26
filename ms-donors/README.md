@@ -1,8 +1,7 @@
 # ms-donors
 
 Donor profile, consents (LOPDP) and eligibility — YAW-DOC-07 §7.3.1, EP-01. Spring Boot 4.1, Java 21, port **8081**,
-database `donors_db` (PostgreSQL). This is the skeleton (YAW-36); the endpoints arrive with HU-01..HU-05
-(YAW-37..41).
+database `donors_db` (PostgreSQL). `GET /donors/me` exists (HU-01, YAW-37); the rest arrives with HU-02..HU-05 (YAW-38..41).
 
 | Documented | Value |
 |---|---|
@@ -11,10 +10,23 @@ database `donors_db` (PostgreSQL). This is the skeleton (YAW-36); the endpoints 
 | Publishes | DonorRegistered, ProfileCompleted, EligibilityChanged, ConsentRevoked, PersonalDataAccessed (outbox) |
 | Consumes | DonationRecorded (inbox, `BaseConsumer`) |
 
+## `GET /api/v1/donors/me` (HU-01)
+Returns the caller's donor profile (role `donor`; the profile is found by the token's `sub`, never by an id in the
+path). The **first call creates it** from the access token: claim `privacy_consent` must be `accepted` (Keycloak
+emits a list), otherwise `422 application/problem+json` and nothing is stored. Creation inserts the donor, a
+`DATA_PROCESSING` consent (policy version `yawar.privacy.policy-version`, default `2026-1`) and the outbox event
+`donors.donor.registered` (IDs only) in one transaction; concurrent first calls create exactly one of each.
+The response has `ETag: "<version>"`; `If-None-Match` with it answers `304`.
+```bash
+curl -i http://localhost:8000/api/v1/donors/me -H "Authorization: Bearer $ACCESS_TOKEN"
+# 200 {"id":"…","profileComplete":false,"consents":[{"purpose":"DATA_PROCESSING","policyVersion":"2026-1","grantedAt":"…"}]}
+curl -i http://localhost:8000/api/v1/donors/me -H "Authorization: Bearer $ACCESS_TOKEN" -H 'If-None-Match: "0"'   # 304
+```
+
 ## Layout (hexagonal)
 ```
 src/main/java/ec/yawar/donors/
-  domain/          aggregates, value objects (DonorId, UserId) — plain Java, checked by ArchitectureTest
+  domain/          aggregates, Donor, Consent, DonorRegistered, value objects — plain Java, checked by ArchitectureTest
   application/     use cases and ports
   infrastructure/  persistence, outbox, consumers, security (Keycloak realm roles → ROLE_*)
   interfaces/      REST controllers, OpenAPI definition

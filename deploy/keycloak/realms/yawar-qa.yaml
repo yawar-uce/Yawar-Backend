@@ -35,13 +35,21 @@ refreshTokenMaxReuse: 0
 internationalizationEnabled: true
 supportedLocales: [es, en]
 defaultLocale: es
-localizationTexts:
+messageBundles:
   es:
     privacyConsent: "Consentimiento de datos personales"
     privacyConsentAccepted: "Acepto el tratamiento de mis datos personales por Yawar según la LOPDP"
+    privacyConsentRequired: "Necesitamos tu consentimiento para tratar tus datos (LOPDP) y crear tu cuenta."
+    emailExistsMessage: "Este correo ya está registrado. Inicia sesión o recupera tu contraseña."
+    usernameExistsMessage: "Este correo ya está registrado. Inicia sesión o recupera tu contraseña."
+    error-user-attribute-required: "Necesitamos tu consentimiento para tratar tus datos (LOPDP) y crear tu cuenta."
   en:
     privacyConsent: "Personal data consent"
     privacyConsentAccepted: "I accept the processing of my personal data by Yawar under the LOPDP"
+    privacyConsentRequired: "We need your consent to process your data (LOPDP) and create your account."
+    emailExistsMessage: "This email is already registered. Sign in or recover your password."
+    usernameExistsMessage: "This email is already registered. Sign in or recover your password."
+    error-user-attribute-required: "We need your consent to process your data (LOPDP) and create your account."
 
 # --- Email: in-cluster Mailpit in QA (no real mail is sent) ---
 smtpServer:
@@ -128,6 +136,18 @@ clients:
           access.token.claim: "true"
           id.token.claim: "false"
           userinfo.token.claim: "false"
+      # Claim idp = identity provider alias of the session (e.g. google); absent for email + password sign-in.
+      # ms-donors uses it only for registrationSource in DonorRegistered.
+      - name: identity-provider
+        protocol: openid-connect
+        protocolMapper: oidc-usersessionmodel-note-mapper
+        config:
+          user.session.note: identity_provider
+          claim.name: idp
+          jsonType.label: String
+          access.token.claim: "true"
+          id.token.claim: "false"
+          userinfo.token.claim: "false"
 
 scopeMappings:
   - client: yawar-web
@@ -175,7 +195,7 @@ components:
                  "validations": {"length": {"max": 255}, "person-name-prohibited-characters": {}},
                  "permissions": {"view": ["admin", "user"], "edit": ["admin", "user"]}, "multivalued": false},
                 {"name": "privacy_consent", "displayName": "${privacyConsent}",
-                 "validations": {"options": {"options": ["accepted"]}},
+                 "validations": {"options": {"options": ["accepted"], "error-message": "${privacyConsentRequired}"}},
                  "annotations": {"inputType": "multiselect-checkboxes",
                                  "inputOptionLabels": {"accepted": "${privacyConsentAccepted}"}},
                  "required": {"roles": ["user"]},
