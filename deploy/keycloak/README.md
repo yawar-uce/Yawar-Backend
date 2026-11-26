@@ -31,8 +31,9 @@ The import is idempotent: editing a file and re-running it updates the realm in 
   audience `yawar-api` in access tokens. Roles are in `realm_access.roles`; `sub`, `email`, `email_verified`
   are present (API Gateway YAW-33, ms-donors YAW-37).
 - **Google (HU-02):** identity provider `google`, disabled until `KC_GOOGLE_ENABLED=true`; client id and secret
-  only from the environment (`deploy/local/.env` locally, a Kubernetes Secret in qa). `trustEmail` links a Google
-  login to an existing account with the same verified email through the "first broker login" flow.
+  only from the environment (`deploy/local/.env` locally, a Kubernetes Secret in qa), `trustEmail: true`, first
+  and last name from Google's `given_name`/`family_name` (default mappers of the Google provider). Its login runs
+  the custom flow `yawar-first-broker-login` (see "Google sign-in flow").
 
 ## QA (pending, YAW-219 / YAW-13)
 The QA Keycloak runs behind the Ingress on `https://yawar-qa-<ip>.sslip.io/auth`: it needs
@@ -44,8 +45,9 @@ and a Job that runs keycloak-config-cli with `realms/yawar-qa.yaml`. The API Gat
 ```bash
 make up                          # starts Keycloak and applies realms/yawar-dev.yaml (container keycloak-config)
 make keycloak-import             # re-apply after editing the file (REALM=yawar-qa to try the qa file locally)
-make keycloak-check              # 44 checks: settings, roles, PKCE login, token claims, sign-up with/without
-                                 # consent, verification email (fictional users, deleted afterwards)
+make keycloak-check              # 52 checks: settings, roles, PKCE login, token claims, sign-up with/without
+                                 # consent, verification email, Google flow (fictional users, deleted afterwards)
+make up PROFILE=idp-mock         # OIDC stub for the Google checks (they are skipped when it is not running)
 ```
 Admin console: http://localhost:8080/admin (`KEYCLOAK_ADMIN_USER` / `KEYCLOAK_ADMIN_PASSWORD`), realm `yawar-dev`.
 Login page: http://localhost:8080/realms/yawar-dev/account. Verification emails: http://localhost:8025.
@@ -57,6 +59,54 @@ Login page: http://localhost:8080/realms/yawar-dev/account. Verification emails:
 3. In `deploy/local/.env` (never in Git): `KC_GOOGLE_ENABLED=true`, `KC_GOOGLE_CLIENT_ID=…`,
    `KC_GOOGLE_CLIENT_SECRET=…`, then `make keycloak-import`.
 
-`trustEmail: true` marks the Google email as verified; linking to an existing local account goes through the
-"first broker login" flow. The case "local account registered with that email but never verified" is tested
-with HU-02 (YAW-38) once a Google client exists.
+Without `KC_GOOGLE_ENABLED=true` the Google button is hidden and the provider is inert.
+
+## Google sign-in flow (`yawar-first-broker-login`)
+```
+review profile (update.profile.on.first.login = missing)        REQUIRED
+user creation or linking                                         REQUIRED
+  create user if unique                                          ALTERNATIVE  new email: user + donor role
+  handle existing account: re-authenticate with the password     ALTERNATIVE  existing email: link after login
+```
+- **HU-02 sc.1 (new user):** the account is created with Google's name and email (`emailVerified` is true because of
+  `trustEmail`) and the default role `donor`. Keycloak shows "review profile" prefilled from Google; the only thing
+  missing, and the only thing the user must do, is to tick the privacy-consent checkbox (the documented exception,
+  ADR-046). Nothing else is requested. Google users have no password; they can use "forgot password" later.
+- **HU-02 sc.2 (existing email):** the Google login is linked to the existing user, never duplicated
+  (`duplicateEmailsAllowed: false`), after that account's password is entered once. The access token then carries
+  `idp=google`, which ms-donors maps to `registrationSource=GOOGLE` for new donors only.
+
+### Account linking and takeover
+Linking by email without proof is the classic account-takeover hole: an attacker registers `victim@gmail.com` with
+their own password (unverified), the victim later signs in with Google, and an automatic link would leave the
+attacker's password working on the victim's linked account. Safe automatic linking would need to know that the
+existing account's email is verified, but Keycloak 26.8 has no built-in condition for that (`conditional-user-attribute`
+cannot read `emailVerified`; it was tried and matches nothing), and the stock "Verify existing account by email"
+adds no proof beyond Google's own verified email while leaving the attacker's password intact. So the flow never
+auto-links: `idp-username-password-form` requires the password of the existing account. The victim does not know the
+attacker's password, so nothing is linked; the legitimate owner (who set the password) links in one step. A wrong
+password links nothing (checked by `hu02_sc2b_unverified_existing_account_is_not_auto_linked`). If silent linking of
+verified accounts is wanted later, it needs a small custom authenticator (Keycloak SPI) and a new ADR.
+
+### Enabling Google sign-in (Google Cloud Console)
+1. APIs & Services, OAuth consent screen: external, scopes `openid`, `email`, `profile`.
+2. Credentials, Create credentials, OAuth client ID, type *Web application*.
+3. Authorized redirect URIs: `http://localhost:8080/realms/yawar-dev/broker/google/endpoint` (local) and
+   `https://yawar-qa-<ip>.sslip.io/auth/realms/yawar-qa/broker/google/endpoint` (qa, one client or one per environment).
+4. Local: put `KC_GOOGLE_ENABLED=true`, `KC_GOOGLE_CLIENT_ID`, `KC_GOOGLE_CLIENT_SECRET` in `deploy/local/.env`
+   (ignored by Git), then `make keycloak-import`. qa: the same three values in the Keycloak Kubernetes Secret.
+
+### Testing without Google
+`make up PROFILE=idp-mock` starts `ghcr.io/navikt/mock-oauth2-server:3.0.1` (test only, port 8099). `make keycloak-check`
+creates through the admin API an OIDC provider `google-test` with the same flow and `trustEmail`, signs in typing the
+claims into the stub's form, and deletes the provider and the users afterwards (the realm files stay clean).
+Checks: `hu02_sc1_*` (account created from the claims, consent only, role donor, token with `idp`),
+`hu02_sc2_*` (existing account linked once, one user) and `hu02_sc2b_*` (unverified account not auto-linked).
+
+### Manual checklist with real Google (once the client exists)
+- [ ] New Google account: sign in, tick the consent, land in the web app; the user in the admin console has Google's
+      name, verified email, role `donor` and a Google federated identity; `GET /donors/me` creates the donor with
+      `registrationSource=GOOGLE`.
+- [ ] Email registered earlier with a password: sign in with Google, enter the password, one user with the link.
+- [ ] Same Google account again: straight in, no consent or password prompt.
+- [ ] Not ticking the consent: the account is not created.

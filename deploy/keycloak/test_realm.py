@@ -2,6 +2,8 @@
 """Integration and functional checks of the Keycloak realm as code (YAW-31), against a running Keycloak.
 
 Usage:  python3 -I deploy/keycloak/test_realm.py            (make keycloak-check)
+HU-02 (Google) is tested against a mock OIDC provider: start it with `make up PROFILE=idp-mock`; without it
+those checks are skipped. The test IdP `google-test` is created through the admin API and deleted afterwards.
 Env:    KC_URL (http://localhost:8080), KC_REALM (yawar-dev), KC_WEB_URL (http://localhost:5173),
         KEYCLOAK_ADMIN_USER / KEYCLOAK_ADMIN_PASSWORD (master admin), MAILPIT_URL (http://localhost:8025)
 Only fictional test users are created (…@example.test) and they are deleted at the end.
@@ -25,6 +27,11 @@ KC = os.environ.get("KC_URL", "http://localhost:8080").rstrip("/")
 REALM = os.environ.get("KC_REALM", "yawar-dev")
 WEB = os.environ.get("KC_WEB_URL", "http://localhost:5173").rstrip("/")
 MAILPIT = os.environ.get("MAILPIT_URL", "http://localhost:8025").rstrip("/")
+# OIDC stub standing in for Google (compose profile idp-mock): reached by the browser at IDP_MOCK_URL and by
+# Keycloak (inside the compose network) at IDP_MOCK_INTERNAL.
+IDP_MOCK = os.environ.get("IDP_MOCK_URL", "http://localhost:" + os.environ.get("IDP_MOCK_PORT", "8099")).rstrip("/")
+IDP_MOCK_INTERNAL = os.environ.get("IDP_MOCK_INTERNAL_URL", "http://idp-mock:8080").rstrip("/")
+TEST_IDP = "google-test"
 ADMIN_USER = os.environ["KEYCLOAK_ADMIN_USER"]
 ADMIN_PASSWORD = os.environ["KEYCLOAK_ADMIN_PASSWORD"]
 CLIENT = "yawar-web"
@@ -294,12 +301,161 @@ def _registration_checks(token, email):
               DUPLICATE_EMAIL in html.unescape(page) and len(same) == 1, " ".join(re.findall(r"(?:Necesit|Este correo|obligatorio|Please|exist|registrad)[^<]{0,120}", html.unescape(page))))
 
 
+# --- HU-02: sign up with Google (the realm's first broker login flow, tested with an OIDC stub) -------------
+def mock_available():
+    try:
+        status, _, _ = request(f"{IDP_MOCK}/default/.well-known/openid-configuration")
+        return status == 200
+    except OSError:
+        return False
+
+
+def create_test_idp(token):
+    """OIDC IdP like `google` (same flow, trustEmail) but pointing to the stub. Removed by the caller."""
+    admin(f"/identity-provider/instances/{TEST_IDP}", token, "DELETE")
+    status, _, body = admin("/identity-provider/instances", token, "POST", {
+        "alias": TEST_IDP, "providerId": "oidc", "enabled": True, "trustEmail": True, "storeToken": False,
+        "firstBrokerLoginFlowAlias": "yawar-first-broker-login",
+        "config": {"clientId": "yawar", "clientSecret": secrets.token_hex(8), "clientAuthMethod": "client_secret_post",
+                   "authorizationUrl": f"{IDP_MOCK}/default/authorize", "tokenUrl": f"{IDP_MOCK_INTERNAL}/default/token",
+                   "jwksUrl": f"{IDP_MOCK_INTERNAL}/default/jwks", "issuer": f"{IDP_MOCK_INTERNAL}/default",
+                   "validateSignature": "true", "useJwksUrl": "true", "disableUserInfo": "true",
+                   "defaultScope": "openid email profile", "syncMode": "IMPORT", "pkceEnabled": "false"}})
+    return status == 201
+
+
+def walk(opener, url, data=None):
+    """Follow redirects by hand until the web app callback (returned as `code`) or an HTML page."""
+    for _ in range(15):
+        status, headers, body = request(url, data, opener=opener)
+        data = None
+        loc = headers.get("Location") or headers.get("location")
+        if status in (301, 302, 303) and loc:
+            url = urllib.parse.urljoin(url, loc)
+            if url.startswith(REDIRECT):
+                return url, None, urllib.parse.parse_qs(urllib.parse.urlparse(url).query).get("code", [None])[0]
+            continue
+        return url, body, None
+    return url, "", None
+
+
+def form_values(page):
+    """Prefilled text inputs of the first form of a Keycloak page (what a browser would submit)."""
+    values = {}
+    for tag in re.findall(r"<input[^>]*>", page or ""):
+        name = re.search(r'name="([^"]+)"', tag)
+        kind = re.search(r'type="([^"]+)"', tag)
+        value = re.search(r'value="([^"]*)"', tag)
+        if name and (kind.group(1) if kind else "text") in ("text", "email") and name.group(1) != "cancel":
+            values[name.group(1)] = html.unescape(value.group(1)) if value else ""
+    return values
+
+
+def google_login(claims, subject, pending=None):
+    """Browser-less login with the stub IdP. Returns (browser, page url, html, code) of where the flow stopped."""
+    follow, no_follow = browser()
+    verifier, challenge = pkce_pair()
+    url, page, code = walk(no_follow, auth_url(challenge) + "&kc_idp_hint=" + TEST_IDP)
+    if page is not None and "claims" in page:  # stub login form: the typed claims become the id token
+        url, page, code = walk(no_follow, url, {"username": subject, "claims": json.dumps(claims)})
+    return no_follow, url, page, code, verifier
+
+
+def token_for(code, verifier):
+    status, _, body = request(f"{KC}/realms/{REALM}/protocol/openid-connect/token", {
+        "grant_type": "authorization_code", "client_id": CLIENT, "code": code, "redirect_uri": REDIRECT,
+        "code_verifier": verifier})
+    return jwt_claims(json.loads(body)["access_token"]) if status == 200 else {}
+
+
+def users_by_email(token, email):
+    _, _, users = admin(f"/users?email={urllib.parse.quote(email)}&exact=true", token)
+    return users if isinstance(users, list) else []
+
+
+def google_checks(token):
+    if not mock_available():
+        print(f"SKIP  HU-02 Google checks: OIDC stub not running at {IDP_MOCK} (make up PROFILE=idp-mock)")
+        return
+    # Local dev only: the test IdP is created in the realm and always deleted in `finally`.
+    emails = [f"google-{secrets.token_hex(4)}@example.test" for _ in range(3)]
+    try:
+        ok = create_test_idp(token)
+        check("test OIDC identity provider google-test created", ok)
+        if ok:
+            _google_checks(token, *emails)
+    finally:
+        admin(f"/identity-provider/instances/{TEST_IDP}", token, "DELETE")
+        for e in emails:
+            for u in users_by_email(token, e):
+                admin(f"/users/{u['id']}", token, "DELETE")
+
+
+def _google_checks(token, new_email, verified_email, unverified_email):
+    # Scenario 1: a new Google user is created from the Google claims; only the privacy consent is asked.
+    claims = {"email": new_email, "email_verified": True, "given_name": "Gabriela", "family_name": "Quishpe"}
+    nf, url, page, code, verifier = google_login(claims, "sub-" + secrets.token_hex(4))
+    fields = form_values(page)
+    # "Review profile" shows the profile prefilled from Google; the only thing the user has to do is tick the consent.
+    check("hu02_sc1_review_profile_prefilled_from_google_and_asks_only_the_consent",
+          fields.get("email") == new_email and fields.get("firstName") == "Gabriela"
+          and fields.get("lastName") == "Quishpe" and "privacy_consent" in (page or "")
+          and set(fields) <= {"email", "firstName", "lastName", "username"}, fields)
+    if page is not None and "privacy_consent" in page:
+        url, page, code = walk(nf, urllib.parse.urljoin(url, form_action(page)), dict(fields, privacy_consent="accepted"))
+    users = users_by_email(token, new_email)
+    u = users[0] if users else {}
+    _, _, roles = admin(f"/users/{u['id']}/role-mappings/realm/composite", token) if u else (0, 0, [])
+    check("hu02_sc1_google_creates_account_without_extra_form", bool(code) and len(users) == 1
+          and u.get("firstName") == "Gabriela" and u.get("lastName") == "Quishpe" and u.get("email") == new_email
+          and u.get("emailVerified") is True and "donor" in {r["name"] for r in roles}
+          and (u.get("attributes") or {}).get("privacy_consent") == ["accepted"], f"code={bool(code)} user={u}")
+    at = token_for(code, verifier) if code else {}
+    check("google login token carries idp, donor role and consent", at.get("idp") == TEST_IDP
+          and "donor" in (at.get("realm_access") or {}).get("roles", []) and at.get("privacy_consent") == ["accepted"], at.get("idp"))
+
+    # Scenario 2: the email already belongs to an account: it is linked (not duplicated) once its password is entered.
+    pw = "Prueba-" + secrets.token_hex(6)
+    for email, verified in ((verified_email, True), (unverified_email, False)):
+        st, _, _ = admin("/users", token, "POST", {
+            "username": email, "email": email, "enabled": True, "emailVerified": verified,
+            "attributes": {"privacy_consent": ["accepted"]},
+            "credentials": [{"type": "password", "value": pw, "temporary": False}]})
+        check(f"pre-created {'verified' if verified else 'unverified'} local account", st == 201, st)
+
+    def existing_login(email, password):
+        claims = {"email": email, "email_verified": True, "given_name": "Luis", "family_name": "Tipan"}
+        nf, url, page, code, verifier = google_login(claims, "sub-" + secrets.token_hex(4))
+        if page is not None and "privacy_consent" in page:  # review profile: tick the consent, the rest is prefilled
+            url, page, code = walk(nf, urllib.parse.urljoin(url, form_action(page)),
+                                   dict(form_values(page), privacy_consent="accepted"))
+        asks_password = page is not None and 'name="password"' in page
+        before = bool(code)
+        if asks_password:
+            url, page, code = walk(nf, urllib.parse.urljoin(url, form_action(page)),
+                                   {"username": email, "password": password})
+        users = users_by_email(token, email)
+        links = admin(f"/users/{users[0]['id']}/federated-identity", token)[2] if users else []
+        return asks_password, before, code, users, [l.get("identityProvider") for l in links]
+
+    asks, early, code, users, links = existing_login(verified_email, pw)
+    check("hu02_sc2_google_links_existing_verified_account", asks and not early and bool(code) and len(users) == 1
+          and links == [TEST_IDP], f"asks={asks} early={early} code={bool(code)} users={len(users)} links={links}")
+
+    # Never linked automatically (pre-registration takeover): an unverified local account needs its password too,
+    # and a wrong password links nothing.
+    asks, early, code, users, links = existing_login(unverified_email, "Wrong-" + secrets.token_hex(6))
+    check("hu02_sc2b_unverified_existing_account_is_not_auto_linked", asks and not early and not code
+          and len(users) == 1 and not links, f"asks={asks} early={early} code={bool(code)} links={links}")
+
+
 if __name__ == "__main__":
     print(f"Keycloak {KC} realm {REALM}")
     tok = admin_token()
     configuration_checks(tok)
     pkce_login_checks(tok)
     registration_checks(admin_token())
+    google_checks(admin_token())
     failed = [n for n, ok in results if not ok]
     print(f"\n{len(results) - len(failed)} passed, {len(failed)} failed")
     sys.exit(1 if failed else 0)

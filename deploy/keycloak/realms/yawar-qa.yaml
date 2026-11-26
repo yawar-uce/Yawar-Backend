@@ -161,13 +161,73 @@ identityProviders:
     enabled: $(env:KC_GOOGLE_ENABLED:-false)
     trustEmail: true
     storeToken: false
-    firstBrokerLoginFlowAlias: first broker login
+    firstBrokerLoginFlowAlias: yawar-first-broker-login
     config:
       clientId: "$(env:KC_GOOGLE_CLIENT_ID:-not-configured)"
       clientSecret: "$(env:KC_GOOGLE_CLIENT_SECRET:-not-configured)"
       defaultScope: openid email profile
       syncMode: IMPORT
       useJwksUrl: "true"
+
+# --- First broker login (HU-02, ADR-046): Google users enter without filling any form, except the single
+# privacy-consent checkbox of "review profile" (update.profile.on.first.login = missing; the profile arrives
+# prefilled from Google). A new user is created when the email is unique; an existing user is linked only after
+# entering that account's password, never automatically (deploy/keycloak/README.md, "Account linking").
+authenticationFlows:
+  - alias: yawar-first-broker-login
+    description: Google sign-in; creates the donor or links it to the existing account safely
+    providerId: basic-flow
+    topLevel: true
+    builtIn: false
+    authenticationExecutions:
+      - authenticator: idp-review-profile
+        authenticatorConfig: yawar-review-profile
+        requirement: REQUIRED
+        priority: 10
+        userSetupAllowed: false
+        autheticatorFlow: false
+      - authenticatorFlow: true
+        flowAlias: yawar-user-creation-or-linking
+        requirement: REQUIRED
+        priority: 20
+        userSetupAllowed: false
+        autheticatorFlow: true
+  - alias: yawar-user-creation-or-linking
+    description: Create the user if the email is new, otherwise handle the existing account
+    providerId: basic-flow
+    topLevel: false
+    builtIn: false
+    authenticationExecutions:
+      - authenticator: idp-create-user-if-unique
+        authenticatorConfig: yawar-create-user-if-unique
+        requirement: ALTERNATIVE
+        priority: 10
+        userSetupAllowed: false
+        autheticatorFlow: false
+      - authenticatorFlow: true
+        flowAlias: yawar-handle-existing-account
+        requirement: ALTERNATIVE
+        priority: 20
+        userSetupAllowed: false
+        autheticatorFlow: true
+  - alias: yawar-handle-existing-account
+    description: Existing account with the same email; linked only after its password is entered
+    providerId: basic-flow
+    topLevel: false
+    builtIn: false
+    authenticationExecutions:
+      - authenticator: idp-username-password-form
+        requirement: REQUIRED
+        priority: 10
+        userSetupAllowed: false
+        autheticatorFlow: false
+authenticatorConfig:
+  - alias: yawar-review-profile
+    config:
+      update.profile.on.first.login: missing
+  - alias: yawar-create-user-if-unique
+    config:
+      require.password.update.after.registration: "false"
 
 # --- User profile: privacy consent is required at sign-up and in "review profile" after Google login ---
 components:
