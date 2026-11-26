@@ -1,0 +1,10 @@
+# Build context of images built from the repository root (e.g. ms-donors, which needs yawar-platform).
+.git
+**/target
+**/.idea
+**/*.iml
+deploy
+infra
+docs
+**/.env
+**/*.env

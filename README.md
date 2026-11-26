@@ -76,6 +76,7 @@ Local credentials live in `deploy/local/.env` (git-ignored). Edit that file, nev
 | RabbitMQ 4.2 | AMQP `localhost:5672`, UI http://localhost:15672 — vhosts `yawar-dev`, `yawar-qa` | `RABBITMQ_USER` / `RABBITMQ_PASSWORD` |
 | Mailpit | SMTP `localhost:1025`, UI http://localhost:8025 | none (accepts any SMTP auth) |
 | Eureka (`PROFILE=platform`) | dashboard http://localhost:8761 · registry `/eureka/apps` | `EUREKA_USER` / `EUREKA_PASSWORD` |
+| ms-donors (`PROFILE=platform`) | http://localhost:8081 · `/health/ready` · `/v3/api-docs` · `/swagger-ui/index.html` | Keycloak token (realm `yawar-dev`, role `donor`) |
 | Config Server (`PROFILE=platform`) | http://localhost:8888/config/ms-donors/dev · `POST /busrefresh` | read: `CONFIG_SERVER_USER` / `CONFIG_SERVER_PASSWORD` · refresh: `CONFIG_ADMIN_USER` / `CONFIG_ADMIN_PASSWORD` |
 | Grafana otel-lgtm | Grafana http://localhost:3000 (traces in Tempo, logs in Loki, metrics in Prometheus); OTLP gRPC `localhost:4317`, HTTP `localhost:4318` | none (anonymous admin, bound to 127.0.0.1) |
 
@@ -107,8 +108,8 @@ The PostgreSQL init script only runs on an empty volume: after changing database
   cannot start from. Run `make reset` once (it deletes the local data), then `make up`.
 
 ### Optional profiles
-Compose profiles, started with `make up PROFILE=<name>`: `platform` (config-server and discovery-service; the
-images are built from the module folders), `ad` (Samba AD) and `gateway` (API Gateway).
+Compose profiles, started with `make up PROFILE=<name>`: `platform` (config-server, discovery-service and
+ms-donors; the images are built from the module folders), `ad` (Samba AD) and `gateway` (API Gateway).
 The config server reads `~/yawar/yawar-config` (`CONFIG_SERVER_PROFILES=native`, default) or the private repo
 `yawar-uce/yawar-config` (`=git` plus `CONFIG_GIT_TOKEN` in `deploy/local/.env`).
 

@@ -1,0 +1,4 @@
+# ms-donors in qa (AWS account A): loads yawar-config application-qa.yml / ms-donors-qa.yml.
+env:
+  YAWAR_ENV: qa
+  RABBITMQ_VHOST: yawar-qa

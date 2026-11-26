@@ -1,7 +1,7 @@
 # Yawar local environment: shared infrastructure for development.
 # Use the Makefile at the repository root (`make up`, `make ps`, `make down`, `make reset`).
-# Optional profiles: `platform` (config-server, discovery-service; `make up PROFILE=platform`), `ad` (Samba AD),
-# `gateway` (API Gateway).
+# Optional profiles: `platform` (config-server, discovery-service, ms-donors; `make up PROFILE=platform`),
+# `ad` (Samba AD), `gateway` (API Gateway).
 
 name: ${COMPOSE_PROJECT_NAME:-yawar}
 
@@ -210,6 +210,52 @@ services:
       timeout: 3s
       retries: 20
       start_period: 40s
+
+  # ms-donors (YAW-36). Uses donors_db in the shared local PostgreSQL (one database + owner role per service;
+  # separate instances on AWS). Imports its configuration from config-server when it is running (optional).
+  ms-donors:
+    profiles: ["platform"]
+    build:
+      context: ../..
+      dockerfile: ms-donors/Dockerfile
+    image: yawar/ms-donors:local
+    restart: unless-stopped
+    environment:
+      YAWAR_ENV: dev
+      CONFIG_SERVER_URL: http://config-server:8888/config
+      CONFIG_SERVER_USER: ${CONFIG_SERVER_USER:-}
+      CONFIG_SERVER_PASSWORD: ${CONFIG_SERVER_PASSWORD:-}
+      DONORS_DB_URL: jdbc:postgresql://postgres:5432/${DONORS_DB_NAME}
+      DONORS_DB_USER: ${DONORS_DB_USER}
+      DONORS_DB_PASSWORD: ${DONORS_DB_PASSWORD}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: ${RABBITMQ_USER}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      RABBITMQ_VHOST: yawar-dev
+      # The token's iss is what the browser sees (localhost); the keys come from the container network.
+      KEYCLOAK_ISSUER_URI: http://localhost:${KEYCLOAK_PORT:-8080}/realms/yawar-dev
+      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/yawar-dev/protocol/openid-connect/certs
+      EUREKA_HOST: discovery-service
+      EUREKA_USER: ${EUREKA_USER:?set EUREKA_USER in deploy/local/.env (see .env.example)}
+      EUREKA_PASSWORD: ${EUREKA_PASSWORD:?set EUREKA_PASSWORD in deploy/local/.env}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-lgtm:4318
+    ports:
+      - "127.0.0.1:${DONORS_PORT:-8081}:8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      config-server:
+        condition: service_healthy
+      discovery-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8081/health/ready >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+      start_period: 60s
 
 volumes:
   postgres-data:

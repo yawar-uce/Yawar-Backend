@@ -1,0 +1,111 @@
+# ms-donors (YAW-36). Local defaults; config-server (yawar-config/ms-donors.yml, application*.yml) overrides them
+# per environment. Secrets only from the environment (deploy/local/.env, Kubernetes Secrets).
+server:
+  port: ${DONORS_PORT:8081}
+  shutdown: graceful
+
+spring:
+  application:
+    name: ms-donors
+  config:
+    # Optional locally (the service also starts from the IDE without config-server); Kubernetes sets
+    # CONFIG_IMPORT_MODE to an empty value so the import is required (with CONFIG_FAIL_FAST=true).
+    import: "${CONFIG_IMPORT_MODE:optional:}configserver:${CONFIG_SERVER_URL:http://localhost:8888/config}"
+  cloud:
+    config:
+      username: ${CONFIG_SERVER_USER:}
+      password: ${CONFIG_SERVER_PASSWORD:}
+      profile: ${YAWAR_ENV:dev}
+      fail-fast: ${CONFIG_FAIL_FAST:false}
+      request-read-timeout: 5000
+  threads:
+    virtual:
+      enabled: true
+  datasource:
+    url: ${DONORS_DB_URL:jdbc:postgresql://localhost:5432/donors_db}
+    username: ${DONORS_DB_USER:donors_app}
+    password: ${DONORS_DB_PASSWORD}
+    hikari:
+      maximum-pool-size: 10
+      connection-timeout: 2000
+      data-source-properties:
+        # YAW-DOC-07 §9.4: statements never run longer than 5 s, lock waits never longer than 2 s.
+        options: "-c statement_timeout=5000 -c lock_timeout=2000"
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate      # schema only through Flyway
+  flyway:
+    locations: classpath:db/yawar-platform,classpath:db/migration
+    # Migrations are not requests: no 5 s statement limit, a longer lock wait.
+    init-sqls: "SET statement_timeout = 0; SET lock_timeout = '10s'"
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:yawar}
+    password: ${RABBITMQ_PASSWORD:}
+    virtual-host: ${RABBITMQ_VHOST:yawar-dev}
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    listener:
+      simple:
+        prefetch: 20
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # The token's iss as the browser sees Keycloak; keys fetched from jwk-set-uri (inside compose/k8s
+          # Keycloak has another host name). audiences: tokens issued for other clients are rejected.
+          issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8080/realms/yawar-dev}
+          jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:8080/realms/yawar-dev/protocol/openid-connect/certs}
+          audiences: yawar-api
+
+eureka:
+  client:
+    enabled: ${EUREKA_ENABLED:true}
+    service-url:
+      # Same expression as yawar-config/application.yml (which overrides it when config-server runs).
+      defaultZone: http://${EUREKA_USER:eureka}:${EUREKA_PASSWORD:}@${EUREKA_HOST:localhost}:${EUREKA_PORT:8761}/eureka/
+  instance:
+    prefer-ip-address: true
+
+management:
+  endpoints:
+    web:
+      base-path: /
+      exposure:
+        include: health,info
+  info:
+    env:
+      enabled: true           # info.* properties (environment, config refresh demo) at /info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      group:
+        live:
+          include: livenessState
+        ready:
+          include: readinessState,db,rabbit
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLING:1.0}
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/traces
+  otlp:
+    metrics:
+      export:
+        url: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/metrics
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    enabled: ${SWAGGER_UI_ENABLED:true}
+
+info:
+  yawar:
+    environment: ${YAWAR_ENV:dev}

@@ -21,9 +21,9 @@
         <module>yawar-platform</module>
         <module>config-server</module>
         <module>discovery-service</module>
+        <module>ms-donors</module>
         <!-- Added by the tasks that create them:
         <module>api-gateway</module>         YAW-33
-        <module>ms-donors</module>           YAW-36
         -->
     </modules>
 </project>
