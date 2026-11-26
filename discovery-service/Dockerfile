@@ -9,8 +9,8 @@ RUN ./mvnw -B -ntp -q package -DskipTests -Djacoco.skip=true \
  && java -Djarmode=tools -jar target/discovery-service-*.jar extract --layers --launcher --destination /extracted
 
 FROM eclipse-temurin:21.0.13_9-jre-alpine
-# Numeric UID so Kubernetes runAsNonRoot can verify it.
-RUN addgroup -S -g 10001 yawar && adduser -S -u 10001 -G yawar yawar
+# Patched OS packages (Trivy V-03), then a numeric UID so Kubernetes runAsNonRoot can verify it.
+RUN apk upgrade --no-cache && addgroup -S -g 10001 yawar && adduser -S -u 10001 -G yawar yawar
 WORKDIR /app
 COPY --from=build /extracted/dependencies/ ./
 COPY --from=build /extracted/spring-boot-loader/ ./
