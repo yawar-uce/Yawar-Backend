@@ -1,7 +1,7 @@
 # Yawar local environment: shared infrastructure for development.
 # Use the Makefile at the repository root (`make up`, `make ps`, `make down`, `make reset`).
-# Optional profiles: `platform` (config-server, discovery-service, ms-donors; `make up PROFILE=platform`),
-# `ad` (Samba AD), `gateway` (API Gateway).
+# Optional profiles: `platform` (config-server, discovery-service, api-gateway, ms-donors; `make up PROFILE=platform`),
+# `ad` (Samba AD), `gateway` (config-server, discovery-service and the API Gateway only).
 
 name: ${COMPOSE_PROJECT_NAME:-yawar}
 
@@ -54,6 +54,25 @@ services:
       timeout: 15s
       retries: 20
       start_period: 20s
+
+  # Redis 8 for the API Gateway rate limiter (YAW-33); later also Idempotency-Key and notification state. The password
+  # is passed through the environment (not on the command line shown by `ps`); data is kept in a volume (AOF).
+  redis:
+    image: redis:8.2-alpine
+    restart: unless-stopped
+    command: ["sh", "-c", "exec redis-server --requirepass \"$$REDIS_PASSWORD\" --appendonly yes"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-change-me-redis}
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
 
   keycloak:
     image: quay.io/keycloak/keycloak:26.8.2
@@ -152,7 +171,7 @@ services:
   # Eureka server (YAW-217). Dashboard http://localhost:8761 (EUREKA_USER / EUREKA_PASSWORD). It imports its
   # configuration from config-server when that is running (optional import) and starts without it otherwise.
   discovery-service:
-    profiles: ["platform"]
+    profiles: ["platform", "gateway"]
     build:
       context: ../../discovery-service
     image: yawar/discovery-service:local
@@ -178,7 +197,7 @@ services:
   # Spring Cloud Config Server (YAW-216). Built from ../../config-server. CONFIG_SERVER_PROFILES=native reads the
   # local clone ../../../yawar-config (~/yawar/yawar-config); =git reads yawar-uce/yawar-config with CONFIG_GIT_TOKEN.
   config-server:
-    profiles: ["platform"]
+    profiles: ["platform", "gateway"]
     build:
       context: ../../config-server
     image: yawar/config-server:local
@@ -257,8 +276,54 @@ services:
       retries: 20
       start_period: 60s
 
+  # API Gateway (YAW-33): the single entry point, http://localhost:8000/api/v1/... Validates Keycloak JWTs, role-based
+  # access, 60 requests/minute per user (Redis), CORS and circuit breaker; routes lb://ms-donors through Eureka.
+  api-gateway:
+    profiles: ["gateway", "platform"]
+    build:
+      context: ../../api-gateway
+    image: yawar/api-gateway:local
+    restart: unless-stopped
+    environment:
+      YAWAR_ENV: dev
+      CONFIG_SERVER_URL: http://config-server:8888/config
+      CONFIG_SERVER_USER: ${CONFIG_SERVER_USER:-}
+      CONFIG_SERVER_PASSWORD: ${CONFIG_SERVER_PASSWORD:-}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: ${RABBITMQ_USER}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      RABBITMQ_VHOST: yawar-dev
+      REDIS_HOST: redis
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-change-me-redis}
+      # The token's iss is what the browser sees (localhost); the keys come from the container network.
+      KEYCLOAK_ISSUER_URI: http://localhost:${KEYCLOAK_PORT:-8080}/realms/yawar-dev
+      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/yawar-dev/protocol/openid-connect/certs
+      CORS_ALLOWED_ORIGINS: "${CORS_ALLOWED_ORIGINS:-http://localhost:5173,http://localhost:[*],http://localhost,https://localhost,capacitor://localhost}"
+      EUREKA_HOST: discovery-service
+      EUREKA_USER: ${EUREKA_USER:?set EUREKA_USER in deploy/local/.env (see .env.example)}
+      EUREKA_PASSWORD: ${EUREKA_PASSWORD:?set EUREKA_PASSWORD in deploy/local/.env}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-lgtm:4318
+    ports:
+      - "127.0.0.1:${GATEWAY_PORT:-8000}:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      config-server:
+        condition: service_healthy
+      discovery-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8000/health/ready >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+      start_period: 60s
+
 volumes:
   postgres-data:
   rabbitmq-data:
+  redis-data:
   mailpit-data:
   otel-lgtm-data:
