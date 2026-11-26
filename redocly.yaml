@@ -1,0 +1,8 @@
+# Lint rules for docs/openapi/*.yaml (CI job `contracts`). Recommended ruleset, minus two intentional exceptions.
+extends:
+  - recommended
+rules:
+  # Internal API of a university project: no public licence to declare.
+  info-license: off
+  # The contract names the local API Gateway (http://localhost:8000); each environment uses its own host.
+  no-server-example.com: off
