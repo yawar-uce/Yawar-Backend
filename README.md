@@ -48,6 +48,7 @@ make acceptance S=ms-donors  # one test per Gherkin scenario (*AcceptanceIT, nam
 make contract S=ms-donors    # OpenAPI/AsyncAPI contract tests (*ContractIT)
 make coverage S=ms-donors    # all tests + gate; prints line coverage and the JaCoCo HTML report path
 make e2e                     # API-level end-to-end tests against the running stack (see below)
+make load                    # k6 smoke load test against the running stack (load-tests/README.md)
 ```
 
 ### End-to-end tests (`e2e-tests/`)
@@ -72,6 +73,7 @@ Runs on every pull request and push to `dev`, `qa` and `production`:
 | `functional` (FT) | `./mvnw verify`: failsafe `*IT`, `*AcceptanceIT`, `*ContractIT` with Testcontainers (the cheap unit tests run again so JaCoCo merges both); results table, coverage table, artifacts `functional-test-reports` and `coverage-reports` | test failures, coverage < 70 % per module (V-01) |
 | `ci` | the required status check: passes only if `security`, `unit` and `functional` succeeded (it reports a failure, not "skipped", when one fails) | gate |
 | `e2e` | `docker compose` (profile `platform`, config from `deploy/local/e2e-config`, random secrets from `.github/scripts/e2e-env.sh`) → `make keycloak-import` → `make e2e`; logs with secrets redacted on failure; always `down -v`; artifact `e2e-test-reports` | end-to-end failures (reported on its own, not part of `ci` yet) |
+| `load` | same stack as `e2e` → `make load` (k6 smoke, 20 users × 1 min); table in the job summary; artifact `load-test-reports` | p95 ≥ 3 s or errors ≥ 1 % (reported on its own, not part of `ci`) |
 | `images` | `.github/scripts/build-images.sh`: builds the image of every module with a Dockerfile (repository root as context when it copies `yawar-platform`) and scans it with Trivy; runs after `ci` | HIGH/CRITICAL image vulnerability with a fix (V-03) |
 
 Images are tagged `yawar/<module>:<commit SHA>` and not pushed here: pushing to ECR and deploying is CD (YAW-16).

@@ -69,3 +69,4 @@ include build.mk
 include deploy/kind/kind.mk
 include deploy/keycloak/keycloak.mk
 include deploy/ad/ad.mk
+include load-tests/load.mk
