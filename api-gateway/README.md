@@ -65,7 +65,7 @@ Defaults for dev: `http://localhost:5173`, `http://localhost:[*]`, `http://local
 `capacitor://localhost`. qa and production set their own host in yawar-config. Credentials are off (bearer tokens,
 no cookies); methods GET POST PUT PATCH DELETE OPTIONS; headers `Authorization`, `Content-Type`,
 `Idempotency-Key`, `If-Match`, `If-None-Match`, `traceparent`, `tracestate`; exposed `ETag`, `Location`, `X-Correlation-Id`,
-`X-RateLimit-Remaining`, `Retry-After`; max age 3600 s. The gateway's headers win over any a service adds
+`X-RateLimit-Remaining`, `Retry-After`, `X-Data-Age`; max age 3600 s. The gateway's headers win over any a service adds
 (`DedupeResponseHeader`).
 
 ## Tracing
