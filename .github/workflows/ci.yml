@@ -230,6 +230,58 @@ jobs:
         if: ${{ always() }}
         run: docker compose --env-file deploy/local/.env -f deploy/local/docker-compose.yml --profile '*' down --volumes --remove-orphans
 
+  # Load (YAW-48, V-05): k6 smoke (20 users x 1 min) on GET /api/v1/donors/me through the gateway, against its own
+  # copy of the e2e stack. Fails on p95 >= 3 s or errors >= 1 %. Reported on its own, not part of the gate.
+  load:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+
+      - name: Create deploy/local/.env with random secrets
+        run: .github/scripts/e2e-env.sh
+
+      - name: Start the stack
+        run: |
+          docker compose --env-file deploy/local/.env -f deploy/local/docker-compose.yml --profile platform \
+            up -d --build --wait --wait-timeout 600 \
+            postgres rabbitmq redis keycloak config-server discovery-service ms-donors api-gateway
+
+      - name: Import the Keycloak realm
+        run: make keycloak-import
+
+      - name: Smoke load test (k6)
+        timeout-minutes: 3
+        run: make load PROFILE=smoke
+
+      - name: Load summary
+        if: ${{ !cancelled() }}
+        run: |
+          if [ -f load-tests/results/summary.md ]; then
+            cat load-tests/results/summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload k6 reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: load-test-reports
+          path: load-tests/results/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      # Secrets of deploy/local/.env are replaced by *** in the output.
+      - name: Container status and logs
+        if: ${{ failure() }}
+        run: .github/scripts/e2e-logs.sh 200
+
+      - name: Stop the stack and delete its volumes
+        if: ${{ always() }}
+        run: |
+          if [ -f deploy/local/.env ]; then
+            docker compose --env-file deploy/local/.env -f deploy/local/docker-compose.yml --profile '*' down --volumes --remove-orphans
+          fi
+
   # Docker image of every module with a Dockerfile + Trivy image scan (V-03). No push: CD (YAW-16) pushes to ECR.
   images:
     needs: ci
