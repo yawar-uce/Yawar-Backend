@@ -37,6 +37,9 @@ The import is idempotent: editing a file and re-running it updates the realm in 
 - **Client `yawar-mobile` (YAW-221):** the same again for the Android app, whose WebView serves the web build on
   `http://localhost`: redirect URIs `http://localhost/callback` and `/silent-check-sso.html` in every realm. The CORS
   origins of the API Gateway must allow `http://localhost` (the local defaults do; qa and production add it).
+  **Accepted risk:** because those URIs have no port, Keycloak accepts the redirect on **any** `localhost` port
+  (loopback rule for native apps), so another program on the device could request tokens with a browser session of
+  the user. The app's WebView needs `http://localhost`; a hostname of its own would remove the risk (follow-up).
 - **Google (HU-02):** identity provider `google`, disabled until `KC_GOOGLE_ENABLED=true`; client id and secret
   only from the environment (`deploy/local/.env` locally, a Kubernetes Secret in qa), `trustEmail: true`, first
   and last name from Google's `given_name`/`family_name` (default mappers of the Google provider). Its login runs
