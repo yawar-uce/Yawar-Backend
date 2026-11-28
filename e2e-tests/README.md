@@ -51,6 +51,13 @@ protocol mappers and default scopes **copied from `yawar-web` at run time** (API
 Not covered yet: the `DonorRegistered` event on RabbitMQ (`yawar.events` has no queue bound to it until a consumer
 exists; the outbox row is already checked by `Hu01Sc1AcceptanceIT` in ms-donors).
 
+Safety guard (`E2eConfig`, unit-tested without a stack): only the realms `yawar-dev` and `yawar-qa` are accepted, and
+`KEYCLOAK_URL` must be `localhost`/`127.0.0.1` unless `E2E_ALLOW_REMOTE_KEYCLOAK=true` (the tests use admin rights).
+
+Local runs leave data behind: the Keycloak client and users are deleted, but the donor rows the first `GET /donors/me`
+created stay in `donors_db` (and their outbox rows). They belong to random users that no longer exist,
+and `make reset` removes them together with every other local volume.
+
 ## CI
 Job `e2e` of `.github/workflows/ci.yml` starts the compose profile `platform` (without Mailpit and Grafana) with a
 `deploy/local/.env` of random secrets (`.github/scripts/e2e-env.sh`), imports the realm and runs `make e2e`.

@@ -90,7 +90,13 @@ final class KeycloakAdmin {
     }
 
     void deleteClient(String id) {
-        admin().delete("/clients/" + id);
+        expectDeleted(admin().delete("/clients/" + id), "client " + id);
+    }
+
+    private static void expectDeleted(Response res, String what) {
+        if (res.statusCode() != 204 && res.statusCode() != 404) {
+            throw new IllegalStateException("Deleting " + what + " failed: " + res.statusCode());
+        }
     }
 
     /** A donor-like account: verified email, accepted privacy consent, default roles (donor). */
@@ -115,7 +121,7 @@ final class KeycloakAdmin {
     }
 
     void deleteUser(String id) {
-        admin().delete("/users/" + id);
+        expectDeleted(admin().delete("/users/" + id), "user " + id);
     }
 
     /** Password grant on the test client; the token is what the gateway sees. */
