@@ -5,6 +5,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions per m
 
 ## [Unreleased]
 ### Added
+- Keycloak client `yawar-mobile` in both realms: public, Authorization Code + PKCE S256, redirect URIs on `http://localhost` (the Android WebView), same token mappers and role scope mappings as `yawar-web`, covered by `make keycloak-check` (YAW-221).
 - Keycloak client `yawar-desktop` in both realms: public, Authorization Code + PKCE S256, loopback redirect URIs on port 5180, same token mappers and role scope mappings as `yawar-web`, covered by `make keycloak-check` (YAW-220).
 - Repository setup: branching flow (dev → qa → production), rulesets, CODEOWNERS, CI and branch-guard (YAW-10).
 - Jira ↔ GitHub integration pilot (YAW-58).

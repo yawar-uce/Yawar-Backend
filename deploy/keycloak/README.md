@@ -34,6 +34,12 @@ The import is idempotent: editing a file and re-running it updates the realm in 
   with the fixed redirect URIs `http://localhost:5180/callback` and `/silent-check-sso.html` in every realm (the
   desktop app serves the web build on that loopback port). The CORS origins of the API Gateway must allow
   `http://localhost:5180` (the local defaults do; qa and production add it in their configuration).
+- **Client `yawar-mobile` (YAW-221):** the same again for the Android app, whose WebView serves the web build on
+  `http://localhost`: redirect URIs `http://localhost/callback` and `/silent-check-sso.html` in every realm. The CORS
+  origins of the API Gateway must allow `http://localhost` (the local defaults do; qa and production add it).
+  **Accepted risk:** because those URIs have no port, Keycloak accepts the redirect on **any** `localhost` port
+  (loopback rule for native apps), so another program on the device could request tokens with a browser session of
+  the user. The app's WebView needs `http://localhost`; a hostname of its own would remove the risk (follow-up).
 - **Google (HU-02):** identity provider `google`, disabled until `KC_GOOGLE_ENABLED=true`; client id and secret
   only from the environment (`deploy/local/.env` locally, a Kubernetes Secret in qa), `trustEmail: true`, first
   and last name from Google's `given_name`/`family_name` (default mappers of the Google provider). Its login runs
@@ -51,7 +57,7 @@ and a Job that runs keycloak-config-cli with `realms/yawar-qa.yaml`. The API Gat
 ```bash
 make up                          # starts Keycloak and applies realms/yawar-dev.yaml (container keycloak-config)
 make keycloak-import             # re-apply after editing the file (REALM=yawar-qa to try the qa file locally)
-make keycloak-check              # 61 checks: settings, roles, PKCE login, token claims, sign-up with/without
+make keycloak-check              # 70 checks: settings, roles, PKCE login, token claims, sign-up with/without
                                  # consent, verification email, Google flow (fictional users, deleted afterwards)
 make up PROFILE=idp-mock         # OIDC stub for the Google checks (they are skipped when it is not running)
 ```
