@@ -81,6 +81,7 @@ export const options = {
     [`http_req_duration{expected_response:true,${GATE}}`]: [`p(95)<${cfg.p95}`],
     [`http_req_failed{${GATE}}`]: ['rate<0.01'],
     [`http_reqs{${GATE}}`]: ['count>0'],   // a run that sent nothing must not pass
+    token_refresh_failures: ['count==0'],  // a VU without a token stops sending: the load would not be applied
   },
   summaryTrendStats: ['avg', 'min', 'med', 'max', 'p(90)', 'p(95)', 'p(99)'],
 };
@@ -92,8 +93,8 @@ const rateLimited = new Counter('donors_me_rate_limited');
 const refreshFailures = new Counter('token_refresh_failures');
 
 // ---------------------------------------------------------------------------------------------------------------
-// Safety guard (same rules as e2e-tests E2eConfig): the script creates and deletes clients and users with admin
-// rights, so it only runs against a Yawar test realm and a Keycloak on this machine.
+// Safety guard: the script creates and deletes clients and users with admin rights, so it only runs against a Yawar
+// test realm and a Keycloak on this machine (or, on explicit request, a remote one over HTTPS).
 function guard() {
   if (REALM !== 'yawar-dev' && REALM !== 'yawar-qa') {
     throw new Error(`REALM '${REALM}' is not allowed: only yawar-dev, yawar-qa`);
@@ -103,6 +104,9 @@ function guard() {
   const host = m[1].toLowerCase();
   if (host !== 'localhost' && host !== '127.0.0.1' && __ENV.LOAD_ALLOW_REMOTE_KEYCLOAK !== 'true') {
     throw new Error(`KEYCLOAK_URL host '${host}' is not local: set LOAD_ALLOW_REMOTE_KEYCLOAK=true to run with admin rights against it`);
+  }
+  if (host !== 'localhost' && host !== '127.0.0.1' && !/^https:/i.test(KEYCLOAK_URL)) {
+    throw new Error(`KEYCLOAK_URL host '${host}' is not local: only https is accepted, the admin password is sent to it`);
   }
   if (!ADMIN_USER || !ADMIN_PASSWORD) {
     throw new Error('KEYCLOAK_ADMIN_USER and KEYCLOAK_ADMIN_PASSWORD are required (make load exports them from deploy/local/.env)');
@@ -207,9 +211,9 @@ function loginAll(users, secret) {
 }
 
 // The gateway answers 401 until it knows its routes, so readiness is proven with a real call (like E2eEnvironment):
-// a throwaway donor calls /donors/me until ms-donors answers 200 (up to 150 s).
+// a throwaway donor calls /donors/me until ms-donors answers 200 (up to 90 s, so the CI step stays within 3 minutes).
 function awaitDonorsReachable(token) {
-  const deadline = Date.now() + 150 * 1000;
+  const deadline = Date.now() + 90 * 1000;
   let last = -1;
   while (Date.now() < deadline) {
     const res = http.get(`${GATEWAY_URL}/api/v1/donors/me`, { headers: { Authorization: `Bearer ${token}` }, tags: { api: 'warmup' } });
@@ -217,7 +221,7 @@ function awaitDonorsReachable(token) {
     if (last === 200) return;
     sleep(2);
   }
-  throw new Error(`GET ${GATEWAY_URL}/api/v1/donors/me never returned 200 in 150 s (last status ${last}): is ms-donors registered in Eureka and the realm imported?`);
+  throw new Error(`GET ${GATEWAY_URL}/api/v1/donors/me never returned 200 in 90 s (last status ${last}): is ms-donors registered in Eureka and the realm imported?`);
 }
 
 function cleanup(ctx) {
@@ -236,6 +240,7 @@ function cleanup(ctx) {
   if (failures.length > 0) {
     console.error(`LOAD CLEANUP FAILED, delete client ${CLIENT_ID} and ${USER_PREFIX}* users in realm ${REALM} by hand: ${failures.slice(0, 10).join('; ')}`);
   }
+  return failures.length;
 }
 
 export function setup() {
@@ -260,7 +265,8 @@ export function setup() {
 }
 
 export function teardown(data) {
-  cleanup(data);
+  const left = cleanup(data);
+  if (left > 0) throw new Error(`${left} temporary Keycloak objects could not be deleted (see above)`);
 }
 
 // ---------------------------------------------------------------------------------------------------------------

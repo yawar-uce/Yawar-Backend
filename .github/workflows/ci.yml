@@ -250,6 +250,10 @@ jobs:
       - name: Import the Keycloak realm
         run: make keycloak-import
 
+      # Outside the 3-minute limit of the test.
+      - name: Pull k6
+        run: make load-pull
+
       - name: Smoke load test (k6)
         timeout-minutes: 3
         run: make load PROFILE=smoke

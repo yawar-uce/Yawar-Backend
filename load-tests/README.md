@@ -17,7 +17,8 @@ k6 runs from a pinned Docker image with the host network. Reports: `load-tests/r
 | `load` | up to 100 users, about 7 min | p95 <= 2 s, errors < 1 % |
 | `stress` | 100 to 300 users, about 16 min | p95 < 3 s, errors < 1 % |
 
-Only `smoke` has been run so far. 200 and 304 count as success; 429 and 5xx are errors.
+Only `smoke` has been run so far. 200 and 304 count as success; 429 and 5xx are errors. A failed token
+refresh or a failed cleanup also fails the run.
 
 ## Users and safety
 The gateway limits each user to 60 requests/minute and the test does not change that: every virtual user is its own
@@ -26,7 +27,7 @@ donor and waits 1.2 s between requests. Setup creates a temporary client `yawar-
 left by a killed run. The donor rows stay in `donors_db` (`make reset` removes them).
 
 The script uses admin rights, so it only accepts the realms `yawar-dev` and `yawar-qa` and a Keycloak on
-`localhost`/`127.0.0.1` (`LOAD_ALLOW_REMOTE_KEYCLOAK=true` overrides it).
+`localhost`/`127.0.0.1` (`LOAD_ALLOW_REMOTE_KEYCLOAK=true` allows another host, over HTTPS only).
 
 ## CI
 Job `load` of `.github/workflows/ci.yml` starts the same stack as `e2e` with random secrets, runs `make load`, adds

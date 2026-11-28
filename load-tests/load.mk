@@ -3,6 +3,10 @@
 # Same pinned k6 locally and in CI. Host network: the tokens' issuer must stay http://localhost:<KEYCLOAK_PORT>.
 K6_IMAGE ?= grafana/k6:2.4.0@sha256:d41bb79cd8de5a7ad619b53570e3712633e8bff0937010a5c6c57a4747e7a276
 
+.PHONY: load-pull
+load-pull: ## Download the pinned k6 image
+	@docker pull -q $(K6_IMAGE)
+
 # PROFILE=smoke (default) | load | stress. The admin credentials reach k6 as environment variables, never as arguments.
 .PHONY: load
 load: export LOAD_PROFILE := $(PROFILE)
