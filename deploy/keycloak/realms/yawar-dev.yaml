@@ -249,10 +249,77 @@ clients:
           id.token.claim: "false"
           userinfo.token.claim: "false"
 
+  # Android app (Capacitor, YAW-221): its WebView serves the web build on http://localhost in every environment, so
+  # the URIs do not depend on KC_WEB_URL. Same flow, scopes and mappers as yawar-web (test_realm.py compares them).
+  - clientId: yawar-mobile
+    name: Yawar mobile
+    enabled: true
+    publicClient: true
+    protocol: openid-connect
+    standardFlowEnabled: true
+    implicitFlowEnabled: false
+    directAccessGrantsEnabled: false
+    serviceAccountsEnabled: false
+    frontchannelLogout: true
+    fullScopeAllowed: false
+    rootUrl: "http://localhost"
+    baseUrl: /
+    redirectUris:
+      - "http://localhost/callback"
+      - "http://localhost/silent-check-sso.html"
+    webOrigins:
+      - "http://localhost"
+    attributes:
+      pkce.code.challenge.method: S256
+      post.logout.redirect.uris: "http://localhost/"
+    defaultClientScopes: [web-origins, acr, profile, roles, basic, email]
+    optionalClientScopes: []
+    protocolMappers:
+      - name: yawar-api-audience
+        protocol: openid-connect
+        protocolMapper: oidc-audience-mapper
+        config:
+          included.custom.audience: yawar-api
+          access.token.claim: "true"
+          id.token.claim: "false"
+      - name: staff-site
+        protocol: openid-connect
+        protocolMapper: oidc-usermodel-attribute-mapper
+        config:
+          user.attribute: site
+          claim.name: site
+          jsonType.label: String
+          access.token.claim: "true"
+          id.token.claim: "false"
+          userinfo.token.claim: "false"
+      - name: privacy-consent
+        protocol: openid-connect
+        protocolMapper: oidc-usermodel-attribute-mapper
+        config:
+          user.attribute: privacy_consent
+          claim.name: privacy_consent
+          jsonType.label: String
+          multivalued: "true"
+          access.token.claim: "true"
+          id.token.claim: "false"
+          userinfo.token.claim: "false"
+      - name: identity-provider
+        protocol: openid-connect
+        protocolMapper: oidc-usersessionmodel-note-mapper
+        config:
+          user.session.note: identity_provider
+          claim.name: idp
+          jsonType.label: String
+          access.token.claim: "true"
+          id.token.claim: "false"
+          userinfo.token.claim: "false"
+
 scopeMappings:
   - client: yawar-web
     roles: [donor, recruitment, logistics, hospital, administrator, auditor]
   - client: yawar-desktop
+    roles: [donor, recruitment, logistics, hospital, administrator, auditor]
+  - client: yawar-mobile
     roles: [donor, recruitment, logistics, hospital, administrator, auditor]
 
 # --- Google sign-in / account linking (HU-02). Disabled until KC_GOOGLE_* are set in .env. ---
