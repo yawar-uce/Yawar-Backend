@@ -59,7 +59,8 @@ class SecurityConfig {
         cors.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         cors.setAllowedHeaders(List.of("Authorization", "Content-Type", "Idempotency-Key", "If-Match", "If-None-Match",
                 "traceparent", "tracestate"));
-        cors.setExposedHeaders(List.of("ETag", "Location", "X-Correlation-Id", "X-RateLimit-Remaining", "Retry-After"));
+        cors.setExposedHeaders(List.of("ETag", "Location", "X-Correlation-Id", "X-RateLimit-Remaining", "Retry-After",
+                "X-Data-Age"));
         // Bearer tokens travel in the Authorization header, never in cookies.
         cors.setAllowCredentials(false);
         cors.setMaxAge(3600L);
