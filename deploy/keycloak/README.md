@@ -30,6 +30,10 @@ The import is idempotent: editing a file and re-running it updates the realm in 
   app must use them, YAW-35), `fullScopeAllowed: false` with explicit role scope mappings (never `agent`), and
   audience `yawar-api` in access tokens. Roles are in `realm_access.roles`; `sub`, `email`, `email_verified`
   are present (API Gateway YAW-33, ms-donors YAW-37).
+- **Client `yawar-desktop` (YAW-220):** the same settings, scopes, mappers and role scope mappings as `yawar-web`,
+  with the fixed redirect URIs `http://localhost:5180/callback` and `/silent-check-sso.html` in every realm (the
+  desktop app serves the web build on that loopback port). The CORS origins of the API Gateway must allow
+  `http://localhost:5180` (the local defaults do; qa and production add it in their configuration).
 - **Google (HU-02):** identity provider `google`, disabled until `KC_GOOGLE_ENABLED=true`; client id and secret
   only from the environment (`deploy/local/.env` locally, a Kubernetes Secret in qa), `trustEmail: true`, first
   and last name from Google's `given_name`/`family_name` (default mappers of the Google provider). Its login runs
@@ -47,7 +51,7 @@ and a Job that runs keycloak-config-cli with `realms/yawar-qa.yaml`. The API Gat
 ```bash
 make up                          # starts Keycloak and applies realms/yawar-dev.yaml (container keycloak-config)
 make keycloak-import             # re-apply after editing the file (REALM=yawar-qa to try the qa file locally)
-make keycloak-check              # 52 checks: settings, roles, PKCE login, token claims, sign-up with/without
+make keycloak-check              # 61 checks: settings, roles, PKCE login, token claims, sign-up with/without
                                  # consent, verification email, Google flow (fictional users, deleted afterwards)
 make up PROFILE=idp-mock         # OIDC stub for the Google checks (they are skipped when it is not running)
 ```

@@ -36,6 +36,8 @@ ADMIN_USER = os.environ["KEYCLOAK_ADMIN_USER"]
 ADMIN_PASSWORD = os.environ["KEYCLOAK_ADMIN_PASSWORD"]
 CLIENT = "yawar-web"
 REDIRECT = WEB + "/callback"
+DESKTOP_CLIENT = "yawar-desktop"
+DESKTOP = "http://localhost:5180"  # fixed loopback port of the desktop app, the same in every realm
 ROLES = ["donor", "recruitment", "logistics", "hospital", "administrator", "auditor", "agent"]
 
 CONSENT_REQUIRED = "Necesitamos tu consentimiento para tratar tus datos (LOPDP) y crear tu cuenta."
@@ -153,6 +155,8 @@ def configuration_checks(token):
     check("no offline tokens for the browser client", "offline_access" not in (c.get("optionalClientScopes") or [])
           and "offline_access" not in (c.get("defaultClientScopes") or []))
 
+    desktop_client_checks(token, c)
+
     status, _, idp = admin("/identity-provider/instances/google", token)
     check("Google identity provider defined", status == 200 and idp.get("providerId") == "google")
     check("Google client secret not exposed by the admin API",
@@ -162,6 +166,43 @@ def configuration_checks(token):
     consent = next((a for a in profile.get("attributes", []) if a["name"] == "privacy_consent"), None)
     check("privacy_consent attribute required for users", consent is not None
           and "user" in ((consent.get("required") or {}).get("roles") or []))
+
+
+def mapper_settings(client):
+    # Keycloak adds introspection.token.claim on its own to some mappers; the realm files do not set it.
+    return sorted((m["name"], m["protocolMapper"],
+                   sorted((k, v) for k, v in m["config"].items() if k != "introspection.token.claim"))
+                  for m in client.get("protocolMappers") or [])
+
+
+def scope_mapped_roles(token, client):
+    _, _, roles = admin(f"/clients/{client.get('id')}/scope-mappings/realm", token)
+    return sorted(r["name"] for r in roles) if isinstance(roles, list) else None
+
+
+def desktop_client_checks(token, web):
+    """yawar-desktop (YAW-220) is yawar-web on the loopback port of the desktop app."""
+    _, _, clients = admin(f"/clients?clientId={DESKTOP_CLIENT}", token)
+    c = clients[0] if clients else {}
+    check("yawar-desktop is a public client", c.get("publicClient") is True)
+    check("yawar-desktop: only Authorization Code flow", c.get("standardFlowEnabled")
+          and not c.get("implicitFlowEnabled") and not c.get("directAccessGrantsEnabled"))
+    check("yawar-desktop: PKCE S256 required", (c.get("attributes") or {}).get("pkce.code.challenge.method") == "S256")
+    check("yawar-desktop: only the loopback redirect URIs", sorted(c.get("redirectUris") or [])
+          == sorted([DESKTOP + "/callback", DESKTOP + "/silent-check-sso.html"]), c.get("redirectUris"))
+    check("yawar-desktop: only the loopback web origin", c.get("webOrigins") == [DESKTOP], c.get("webOrigins"))
+    check("yawar-desktop: same default and optional scopes as yawar-web",
+          sorted(c.get("defaultClientScopes") or []) == sorted(web.get("defaultClientScopes") or [])
+          and sorted(c.get("optionalClientScopes") or []) == sorted(web.get("optionalClientScopes") or []))
+    check("yawar-desktop: same token mappers as yawar-web", bool(c) and mapper_settings(c) == mapper_settings(web))
+    check("yawar-desktop: same role scope mappings as yawar-web", bool(c) and c.get("fullScopeAllowed") is False
+          and scope_mapped_roles(token, c) == scope_mapped_roles(token, web))
+
+    verifier, challenge = pkce_pair()
+    url = auth_url(challenge).replace("client_id=" + CLIENT, "client_id=" + DESKTOP_CLIENT).replace(
+        urllib.parse.quote(REDIRECT, safe=""), urllib.parse.quote(DESKTOP + "/callback", safe=""))
+    status, _, page = request(url)
+    check("yawar-desktop: authorization request shows the login page", status == 200 and form_action(page), status)
 
 
 def pkce_login_checks(token):
